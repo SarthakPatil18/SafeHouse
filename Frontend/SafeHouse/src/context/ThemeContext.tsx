@@ -22,7 +22,7 @@ export const ThemeProvider: React.FC<{ children: React.ReactNode }> = ({ childre
     } catch {
       // Ignore localStorage errors
     }
-    return 'dark'; // Default to dark for the signature sci-fi mission control look
+    return 'light'; // Default to light mode on initial load
   });
 
   useEffect(() => {
