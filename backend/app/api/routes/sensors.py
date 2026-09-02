@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.db import get_db
+from app.core.security import validate_device_token
 from app.schemas.responses import SuccessResponse
 from app.schemas.sensors import SensorReadingCreate
 from app.services.sensor_service import SensorService
@@ -36,6 +37,7 @@ async def get_sensor_history(
 @router.post("/readings")
 async def record_sensor_reading(
     reading: SensorReadingCreate,
+    authenticated: bool = Depends(validate_device_token),
     db: AsyncSession = Depends(get_db),
 ):
     """Ingest new sensor reading and deterministically evaluate room baselines for anomalies."""

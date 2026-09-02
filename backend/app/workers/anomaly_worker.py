@@ -1,12 +1,14 @@
 """Worker implementing the anomaly recheck and AI reasoning alert pipeline.
 
-Per Section 2 and Section 5 of AGENTS.md:
-1. PATROL / SENSE -> detect_anomaly -> IF True -> Create Anomaly(status=PENDING) and
-   transition state machine to RECHECKING (no immediate alert).
+Per Section 1a, Section 2, Section 5, and Section 5a of AGENTS.md:
+1. PATROL / SENSE -> evaluate gas & motion anomalies separately.
+   - If anomalies detected -> Create Anomaly records (status=PENDING) and
+     transition state machine to RECHECKING (no immediate alert).
 2. On next reading from same room (RECHECK):
-   - If anomaly still present: Mark Anomaly(status=CONFIRMED), compute severity,
-     call reasoning_agent.explain_anomaly, create Alert(status=active).
-   - If reading is normal: Mark Anomaly(status=RESOLVED, resolved_at=now), NO alert.
+   - Supports MULTIPLE anomaly types per reading (e.g. simultaneous MQ135 + MQ2, or gas + motion).
+   - For each pending anomaly still present: Mark Anomaly(status=CONFIRMED),
+     call reasoning_agent.explain_anomaly, create Alert(status=active) and broadcast.
+   - For any anomaly no longer present: Mark Anomaly(status=RESOLVED, resolved_at=now), NO alert.
 """
 
 import uuid
@@ -21,13 +23,13 @@ from app.core.logging import logger
 from app.models.alert import Alert, Anomaly
 from app.robotics.state_machine import RobotState
 from app.services.anomaly_service import (
-    detect_anomaly,
-    evaluate_reading_anomalies,
-    get_metric_severity,
+    detect_gas_anomaly,
+    detect_motion_anomaly,
 )
 from app.services.dashboard_broadcaster import broadcast_alert
 from app.services.robot_service import get_state_machine
 from app.services.room_service import RoomService
+from app.services.sensor_service import SensorService
 
 # In-memory registry for active pending recheck tracking
 _pending_anomalies: Dict[str, Dict[str, Any]] = {}
@@ -61,7 +63,7 @@ class AnomalyWorker:
         """Process incoming sensor reading through the recheck confirmation pipeline.
 
         Args:
-            reading: Dictionary with sensor readings (room_id, temperature, humidity, sound_level).
+            reading: Dictionary with sensor readings (room_id, pir_motion, gas_mq135, gas_mq2, ultrasonic_distance_cm, battery).
             db: Optional async database session.
 
         Returns:
@@ -81,188 +83,207 @@ class AnomalyWorker:
         now = datetime.now(timezone.utc)
         reading_id = reading.get("id") or f"sr_{uuid.uuid4().hex[:8]}"
 
-        # Check if there is already a PENDING anomaly for this room
-        pending = _pending_anomalies.get(room_id)
+        # 2. Query last_motion_at and evaluate gas and motion anomalies separately
+        last_motion_at = await SensorService.get_last_motion_timestamp(room_id, db=db)
+        gas_anomalies = detect_gas_anomaly(reading, baseline)
+        motion_anomaly = detect_motion_anomaly(reading, baseline, last_motion_at=last_motion_at)
+
+        current_evaluations: List[Dict[str, Any]] = list(gas_anomalies)
+        if motion_anomaly is not None:
+            current_evaluations.append(motion_anomaly)
+
+        current_types_map = {a["type"]: a for a in current_evaluations}
+
+        # Check if there is already a PENDING anomaly container for this room
+        pending_container = _pending_anomalies.get(room_id)
 
         # -------------------------------------------------------------
         # Scenario A: RECHECK STEP (Room was already in PENDING state)
         # -------------------------------------------------------------
-        if pending is not None:
-            is_anomaly, anomaly_types = detect_anomaly(reading, baseline)
+        if pending_container is not None:
+            pending_items: List[Dict[str, Any]] = pending_container.get(
+                "anomalies", [pending_container]
+            )
 
-            if is_anomaly:
-                # Anomaly is STILL PRESENT -> CONFIRM ANOMALY AND GENERATE ALERT
-                anomaly_id = pending["id"]
-                pending["status"] = "CONFIRMED"
-                pending["confirmed_at"] = now.isoformat()
+            confirmed_alerts: List[Dict[str, Any]] = []
+            resolved_anomalies: List[str] = []
 
-                # Evaluate detailed metric info and calculate severity
-                evaluations = evaluate_reading_anomalies(reading, baseline)
-                top_eval = evaluations[0] if evaluations else {
-                    "type": anomaly_types[0],
-                    "severity": "HIGH",
-                    "value": reading.get("temperature", 0.0),
-                    "expected_min": baseline.get("temperature_min"),
-                    "expected_max": baseline.get("temperature_max"),
-                }
-                severity = top_eval["severity"]
+            for p_anom in pending_items:
+                anom_type = p_anom["type"]
+                anom_id = p_anom["id"]
 
-                # Generate AI reasoning plain-language explanation
-                ai_context = {
-                    "room_id": room_id,
-                    "room_name": room_info.get("name", room_id),
-                    "type": top_eval["type"],
-                    "value": top_eval["value"],
-                    "expected_min": top_eval.get("expected_min"),
-                    "expected_max": top_eval.get("expected_max"),
-                    "severity": severity,
-                    "trend": "Confirmed upon automated recheck inspection.",
-                }
+                if anom_type in current_types_map:
+                    # Anomaly is STILL PRESENT -> CONFIRM ANOMALY AND GENERATE ALERT
+                    eval_data = current_types_map[anom_type]
+                    severity = eval_data.get("severity", "HIGH")
 
-                try:
-                    message_text = await explain_anomaly_async(ai_context)
-                except Exception as e:
-                    logger.warning("AI explanation failed, using deterministic template: %s", e)
-                    message_text = (
-                        f"Confirmed {top_eval['type']} in {room_info.get('name', room_id)}: "
-                        f"Value {top_eval['value']} outside safe bounds. Severity: {severity}."
-                    )
+                    p_anom["status"] = "CONFIRMED"
+                    p_anom["confirmed_at"] = now.isoformat()
+                    p_anom["severity"] = severity
+                    p_anom["value"] = eval_data.get("value", p_anom.get("value"))
 
-                # Create Alert record
-                alert_id = f"alert_{uuid.uuid4().hex[:8]}"
-                alert_data = {
-                    "id": alert_id,
-                    "anomaly_id": anomaly_id,
-                    "room_id": room_id,
-                    "severity": severity,
-                    "message": message_text,
-                    "channel": "dashboard",
-                    "status": "active",
-                    "created_at": now.isoformat(),
-                    "acknowledged_at": None,
-                }
-                _worker_created_alerts.append(alert_data)
+                    # Generate AI reasoning plain-language explanation
+                    ai_context = {
+                        "room_id": room_id,
+                        "room_name": room_info.get("name", room_id),
+                        "type": anom_type,
+                        "value": eval_data.get("value"),
+                        "expected_min": eval_data.get("expected_min"),
+                        "expected_max": eval_data.get("expected_max"),
+                        "severity": severity,
+                        "trend": "Confirmed upon automated recheck inspection.",
+                    }
 
-                # Broadcast live alert to all connected dashboard WebSocket clients
-                await broadcast_alert(alert_data)
-
-                # Persist confirmed anomaly and alert to database if session exists
-                if db is not None:
                     try:
-                        res = await db.execute(select(Anomaly).where(Anomaly.id == anomaly_id))
-                        db_anom = res.scalars().first()
-                        if db_anom:
-                            db_anom.status = "CONFIRMED"
-                            db_anom.severity = severity
-
-                        db_alert = Alert(
-                            id=alert_id,
-                            anomaly_id=anomaly_id,
-                            room_id=room_id,
-                            severity=severity,
-                            message=message_text,
-                            channel="dashboard",
-                            status="active",
-                            created_at=now,
-                        )
-                        db.add(db_alert)
-                        await db.commit()
+                        message_text = await explain_anomaly_async(ai_context)
                     except Exception as e:
-                        logger.debug("Database alert persistence deferred: %s", e)
+                        logger.warning("AI explanation failed, using deterministic fallback: %s", e)
+                        message_text = (
+                            f"Confirmed {anom_type} in {room_info.get('name', room_id)}: "
+                            f"Value {eval_data.get('value')} outside safe baseline. Severity: {severity}."
+                        )
 
-                # Restore state machine from RECHECKING
-                if sm.state == RobotState.RECHECKING:
-                    sm.transition_to(RobotState.IDLE)
+                    # Create Alert record
+                    alert_id = f"alert_{uuid.uuid4().hex[:8]}"
+                    alert_data = {
+                        "id": alert_id,
+                        "anomaly_id": anom_id,
+                        "room_id": room_id,
+                        "severity": severity,
+                        "message": message_text,
+                        "channel": "dashboard",
+                        "status": "active",
+                        "created_at": now.isoformat(),
+                        "acknowledged_at": None,
+                    }
+                    _worker_created_alerts.append(alert_data)
+                    confirmed_alerts.append(alert_data)
 
-                del _pending_anomalies[room_id]
+                    # Broadcast live alert to connected dashboard WebSocket clients
+                    await broadcast_alert(alert_data)
 
+                    # Persist confirmed anomaly and alert to database if session exists
+                    if db is not None:
+                        try:
+                            res = await db.execute(select(Anomaly).where(Anomaly.id == anom_id))
+                            db_anom = res.scalars().first()
+                            if db_anom:
+                                db_anom.status = "CONFIRMED"
+                                db_anom.severity = severity
+
+                            db_alert = Alert(
+                                id=alert_id,
+                                anomaly_id=anom_id,
+                                room_id=room_id,
+                                severity=severity,
+                                message=message_text,
+                                channel="dashboard",
+                                status="active",
+                                created_at=now,
+                            )
+                            db.add(db_alert)
+                            await db.commit()
+                        except Exception as e:
+                            logger.debug("Database alert persistence deferred: %s", e)
+
+                else:
+                    # Anomaly type is NOW NORMAL -> RESOLVE WITHOUT ALERTING
+                    p_anom["status"] = "RESOLVED"
+                    p_anom["resolved_at"] = now.isoformat()
+                    resolved_anomalies.append(anom_id)
+
+                    if db is not None:
+                        try:
+                            res = await db.execute(select(Anomaly).where(Anomaly.id == anom_id))
+                            db_anom = res.scalars().first()
+                            if db_anom:
+                                db_anom.status = "RESOLVED"
+                                db_anom.resolved_at = now
+                                await db.commit()
+                        except Exception as e:
+                            logger.debug("Database anomaly resolution deferred: %s", e)
+
+            # Restore state machine from RECHECKING
+            if sm.state == RobotState.RECHECKING:
+                sm.transition_to(RobotState.IDLE)
+
+            del _pending_anomalies[room_id]
+
+            if confirmed_alerts:
                 return {
                     "action": "CONFIRMED_AND_ALERTED",
-                    "anomaly_id": anomaly_id,
-                    "alert": alert_data,
                     "status": "CONFIRMED",
+                    "alerts": confirmed_alerts,
+                    "alert": confirmed_alerts[0],
+                    "anomaly_id": pending_container.get("id"),
+                    "confirmed_count": len(confirmed_alerts),
                 }
-
             else:
-                # Recheck reading is NOW NORMAL -> RESOLVE WITHOUT ALERTING
-                anomaly_id = pending["id"]
-                pending["status"] = "RESOLVED"
-                pending["resolved_at"] = now.isoformat()
-
-                if db is not None:
-                    try:
-                        res = await db.execute(select(Anomaly).where(Anomaly.id == anomaly_id))
-                        db_anom = res.scalars().first()
-                        if db_anom:
-                            db_anom.status = "RESOLVED"
-                            db_anom.resolved_at = now
-                            await db.commit()
-                    except Exception as e:
-                        logger.debug("Database anomaly resolution deferred: %s", e)
-
-                # Restore state machine from RECHECKING
-                if sm.state == RobotState.RECHECKING:
-                    sm.transition_to(RobotState.IDLE)
-
-                del _pending_anomalies[room_id]
-
                 return {
                     "action": "RESOLVED_NO_ALERT",
-                    "anomaly_id": anomaly_id,
                     "status": "RESOLVED",
+                    "resolved_anomalies": resolved_anomalies,
+                    "anomaly_id": pending_container.get("id"),
                 }
 
         # -------------------------------------------------------------
-        # Scenario B: FIRST OBSERVATION (Check if anomaly triggers PENDING)
+        # Scenario B: FIRST OBSERVATION (Check if anomalies trigger PENDING)
         # -------------------------------------------------------------
-        is_anomaly, anomaly_types = detect_anomaly(reading, baseline)
+        if current_evaluations:
+            pending_records: List[Dict[str, Any]] = []
 
-        if is_anomaly:
-            evaluations = evaluate_reading_anomalies(reading, baseline)
-            top_eval = evaluations[0] if evaluations else {
-                "type": anomaly_types[0],
-                "severity": "MEDIUM",
-                "value": reading.get("temperature", 0.0),
-                "expected_min": baseline.get("temperature_min"),
-                "expected_max": baseline.get("temperature_max"),
-            }
+            for eval_item in current_evaluations:
+                anomaly_id = f"anom_{uuid.uuid4().hex[:8]}"
+                pending_anomaly = {
+                    "id": anomaly_id,
+                    "room_id": room_id,
+                    "reading_id": reading_id,
+                    "type": eval_item["type"],
+                    "severity": eval_item["severity"],
+                    "value": eval_item["value"],
+                    "expected_min": eval_item.get("expected_min"),
+                    "expected_max": eval_item.get("expected_max"),
+                    "status": "PENDING",
+                    "detected_at": now.isoformat(),
+                    "resolved_at": None,
+                }
+                pending_records.append(pending_anomaly)
 
-            anomaly_id = f"anom_{uuid.uuid4().hex[:8]}"
-            pending_anomaly = {
-                "id": anomaly_id,
+                # Persist pending anomaly to DB
+                if db is not None:
+                    try:
+                        db_anom = Anomaly(
+                            id=anomaly_id,
+                            room_id=room_id,
+                            reading_id=reading_id,
+                            type=eval_item["type"],
+                            severity=eval_item["severity"],
+                            value=eval_item["value"],
+                            expected_min=eval_item.get("expected_min"),
+                            expected_max=eval_item.get("expected_max"),
+                            status="PENDING",
+                            detected_at=now,
+                        )
+                        db.add(db_anom)
+                        await db.commit()
+                    except Exception as e:
+                        logger.debug("Database pending anomaly persistence deferred: %s", e)
+
+            # Store pending container in memory for room
+            primary_anom = pending_records[0]
+            _pending_anomalies[room_id] = {
+                "id": primary_anom["id"],
                 "room_id": room_id,
                 "reading_id": reading_id,
-                "type": top_eval["type"],
-                "severity": top_eval["severity"],
-                "value": top_eval["value"],
-                "expected_min": top_eval.get("expected_min"),
-                "expected_max": top_eval.get("expected_max"),
+                "type": primary_anom["type"],
+                "severity": primary_anom["severity"],
+                "value": primary_anom["value"],
+                "expected_min": primary_anom.get("expected_min"),
+                "expected_max": primary_anom.get("expected_max"),
                 "status": "PENDING",
                 "detected_at": now.isoformat(),
-                "resolved_at": None,
+                "anomalies": pending_records,
             }
-
-            _pending_anomalies[room_id] = pending_anomaly
-
-            # Persist pending anomaly to DB
-            if db is not None:
-                try:
-                    db_anom = Anomaly(
-                        id=anomaly_id,
-                        room_id=room_id,
-                        reading_id=reading_id,
-                        type=top_eval["type"],
-                        severity=top_eval["severity"],
-                        value=top_eval["value"],
-                        expected_min=top_eval.get("expected_min"),
-                        expected_max=top_eval.get("expected_max"),
-                        status="PENDING",
-                        detected_at=now,
-                    )
-                    db.add(db_anom)
-                    await db.commit()
-                except Exception as e:
-                    logger.debug("Database pending anomaly persistence deferred: %s", e)
 
             # Trigger state machine to RECHECKING
             sm.current_room_id = room_id
@@ -271,9 +292,11 @@ class AnomalyWorker:
 
             return {
                 "action": "PENDING_RECHECK_TRIGGERED",
-                "anomaly_id": anomaly_id,
                 "status": "PENDING",
                 "room_id": room_id,
+                "anomaly_id": primary_anom["id"],
+                "anomaly_count": len(pending_records),
+                "anomalies": pending_records,
             }
 
         return {"action": "NORMAL", "is_anomaly": False}

@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import (
     create_async_engine,
 )
 
+from sqlalchemy import text
 from app.core.config import settings
 from app.core.logging import logger
 from app.models.base import Base
@@ -30,20 +31,36 @@ async_session_factory = async_sessionmaker(
 )
 
 
+async def check_db_health() -> bool:
+    """Verify whether database connection is active and responsive."""
+    try:
+        async with engine.connect() as conn:
+            await conn.execute(text("SELECT 1"))
+            return True
+    except Exception:
+        return False
+
+
+
 async def get_db() -> AsyncGenerator[Optional[AsyncSession], None]:
     """FastAPI dependency for yielding transactional database sessions with fallback."""
+    session = None
     try:
-        async with async_session_factory() as session:
-            try:
-                yield session
-            except Exception:
-                await session.rollback()
-                raise
-            finally:
-                await session.close()
+        session = async_session_factory()
     except Exception as e:
         logger.debug("Database session unavailable (%s), operating in memory fallback.", e)
         yield None
+        return
+
+    async with session:
+        try:
+            yield session
+        except Exception:
+            try:
+                await session.rollback()
+            except Exception:
+                pass
+            raise
 
 
 async def init_db() -> None:

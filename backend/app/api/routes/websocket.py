@@ -22,7 +22,7 @@ from app.core.logging import logger
 from app.core.security import verify_device_token
 from app.models.device import Device, RobotEvent
 from app.schemas.sensors import SensorReadingCreate
-from app.services.anomaly_service import detect_anomaly, evaluate_reading_anomalies
+from app.services.anomaly_service import detect_gas_anomaly, detect_motion_anomaly
 from app.services.dashboard_broadcaster import dashboard_manager
 from app.services.device_manager import get_device_manager
 from app.services.robot_service import get_state_machine
@@ -30,6 +30,7 @@ from app.services.room_service import DEFAULT_ROOMS
 from app.services.sensor_service import SensorService
 
 router = APIRouter(tags=["WebSockets"])
+
 
 
 async def _log_device_event(
@@ -161,6 +162,18 @@ async def device_websocket_endpoint(
                 })
                 continue
 
+            # Query last_motion_at and evaluate gas and motion anomalies separately
+            room_id = reading_in.room_id
+            baseline = DEFAULT_ROOMS[room_id].get("baseline") if room_id in DEFAULT_ROOMS else None
+            last_motion_at = await SensorService.get_last_motion_timestamp(room_id) if room_id else None
+
+            if baseline:
+                gas_anomalies = detect_gas_anomaly(reading_in, baseline)
+                motion_anomaly = detect_motion_anomaly(reading_in, baseline, last_motion_at=last_motion_at)
+            else:
+                gas_anomalies = []
+                motion_anomaly = None
+
             # Ingest, detect anomalies, save reading, and process recheck worker
             saved_reading = await SensorService.record_reading(reading_in, process_worker=True)
 
@@ -181,6 +194,7 @@ async def device_websocket_endpoint(
                 "robot_state": sm.state.value,
                 "timestamp": saved_reading.get("timestamp"),
             })
+
 
     except WebSocketDisconnect:
         logger.info("ESP32 Device '%s' disconnected from WebSocket.", device_id)

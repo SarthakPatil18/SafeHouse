@@ -6,9 +6,10 @@ Do not silently change any decision marked FINAL below — if you think one is w
 ## 1. What we're building
 
 SafeRoom: a mobile rover that patrols predefined rooms/waypoints, reads environmental
-sensors (temperature, humidity, sound, obstacle distance), compares readings against
-per-room baselines, detects anomalies, optionally rechecks to confirm, and proactively
-alerts a caregiver/staff dashboard — with natural-language voice/text control.
+sensors (PIR motion, MQ135 air quality/hazardous gas, MQ2 combustible gas/smoke,
+ultrasonic distance, battery), compares readings against per-room baselines, detects
+anomalies, optionally rechecks to confirm, and proactively alerts a caregiver/staff
+dashboard — with natural-language voice/text control.
 
 Core loop: PATROL → SENSE → STORE → COMPARE TO BASELINE → ANOMALY? → RECHECK → AI REASONING → ALERT
 Command loop: USER TEXT/VOICE → PARSE → STRUCTURED COMMAND → VALIDATE/AUTHORIZE → ROBOT → RESULT → RESPONSE
@@ -33,7 +34,7 @@ contract as if the other two already exist.
 | Hardware transport | WebSocket between backend and ESP32 | low latency, no polling |
 | Browser transport | REST for initial state + WebSocket for live updates | |
 | Explicitly NOT using | MQTT, RAG/pgvector, LangChain, computer vision, any trained/fine-tuned ML model, Docker/K8s | overengineering for this project's actual needs |
-| Simulation mode | Required. A fake-ESP32 module that can replay scripted sensor scenarios (normal / cold room / loud sound / humidity spike / sensor failure / offline) so the backend is fully demoable with zero real hardware connected. | demo insurance, also useful for automated tests |
+| Simulation mode | Required. A fake-ESP32 module that can replay scripted sensor scenarios (normal / gas leak / hazardous air quality / unexpected motion / motion absent / sensor failure / offline) so the backend is fully demoable with zero real hardware connected. | demo insurance, also useful for automated tests |
 
 ## 3. Command schema (the only intents that exist — do not invent new ones)
 
@@ -73,16 +74,33 @@ Hard rejection rules the backend must enforce regardless of what any command say
 Key fields per table:
 - **devices**: id, name, device_type, status, battery_level, last_seen, firmware_version, created_at
 - **rooms**: id, name, type, x, y, order_index, enabled, created_at
-- **sensor_readings**: id, device_id, room_id, timestamp, temperature, humidity, sound_level, battery
-- **room_baselines**: id, room_id, temperature_min, temperature_max, humidity_min, humidity_max, sound_threshold, updated_at
-- **anomalies**: id, room_id, reading_id, type, severity, value, expected_min, expected_max, status, detected_at, resolved_at
+- **sensor_readings**: id, device_id, room_id, timestamp, pir_motion, gas_mq135, gas_mq2, ultrasonic_distance_cm, battery
+- **room_baselines**: id, room_id, gas_mq135_max, gas_mq2_max, motion_mode, no_motion_timeout_seconds, updated_at
+- **anomalies**: id, room_id, reading_id, type, severity, value, expected_min, expected_max, status, detected_at, resolved_at (types: gas_mq135_high, gas_mq2_high, motion_absent_too_long, motion_unexpected)
 - **alerts**: id, anomaly_id, room_id, severity, message, channel, status, created_at, acknowledged_at
 - **patrols**: id, device_id, status, started_at, completed_at
 - **patrol_stops**: id, patrol_id, room_id, sequence, status, arrived_at, departed_at
 - **robot_events**: id, device_id, event_type, payload, timestamp  (CONNECTED, DISCONNECTED, MOTOR_STARTED, OBSTACLE_DETECTED, ROOM_REACHED, SENSOR_ERROR, LOW_BATTERY, PATROL_STARTED, PATROL_COMPLETED)
 - **ai_interactions**: id, user_input, intent, model, latency_ms, success, created_at (do not log indefinitely by default — this is a care-monitoring product; keep it short-retention/debug-only)
 
+## 5a. Anomaly detection engine (deterministic rules)
+
+- **Gas Anomalies**:
+  - `detect_gas_anomaly(reading, baseline)` checks `gas_mq135` against `gas_mq135_max` and `gas_mq2` against `gas_mq2_max` independently.
+  - Types: `gas_mq135_high`, `gas_mq2_high`.
+  - Severity: Gas anomalies are NEVER downgraded below `MEDIUM` (bucketing is `MEDIUM` or `HIGH`, never `LOW`).
+  - Boundary: Values exactly at threshold (`value == threshold`) do NOT trigger an anomaly.
+- **Motion Anomalies**:
+  - `detect_motion_anomaly(reading, baseline, last_motion_at)` is a pure function (caller provides `last_motion_at`).
+  - Three `motion_mode` branches:
+    1. `expect_presence`: Triggers `motion_absent_too_long` if PIR motion is absent past `no_motion_timeout_seconds`.
+    2. `expect_absence`: Triggers `motion_unexpected` if PIR motion is detected.
+    3. `ignore`: Never triggers any motion anomaly.
+- **Ultrasonic distance**:
+  - Used for obstacle detection and rover state machine only — NEVER for room environmental anomaly detection. Must NOT appear in anomaly_service.py.
+
 ## 6. Robot device states (for dashboard status + state machine)
+
 
 ```
 IDLE, MOVING, TURNING, PATROLLING, SENSING, RECHECKING,

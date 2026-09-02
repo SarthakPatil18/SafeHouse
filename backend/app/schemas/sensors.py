@@ -13,10 +13,33 @@ class SensorReadingBase(BaseModel):
         default=None,
         description="Room identifier where the sensor reading was captured",
     )
-    temperature: float = Field(..., description="Ambient temperature reading in Celsius")
-    humidity: float = Field(..., description="Relative humidity percentage (0-100)")
-    sound_level: float = Field(..., description="Sound level measurement (dB or normalized)")
-    battery: float = Field(..., description="Battery level percentage (0-100)")
+    pir_motion: bool = Field(
+        default=False,
+        description="PIR motion detection status (true if motion detected)",
+    )
+    gas_mq135: float = Field(
+        ...,
+        description="MQ135 air quality / hazardous gas reading in ppm",
+    )
+    gas_mq2: float = Field(
+        ...,
+        description="MQ2 combustible gas and smoke reading in ppm",
+    )
+    ultrasonic_distance_cm: float = Field(
+        ...,
+        description="Ultrasonic obstacle distance measurement in cm",
+    )
+    battery: float = Field(
+        ...,
+        description="Battery level percentage (0-100)",
+    )
+    no_motion_seconds: Optional[float] = Field(
+        default=None,
+        description="Elapsed seconds without motion (optional for simulation telemetry)",
+    )
+
+    model_config = {"extra": "allow"}
+
 
 
 class SensorReadingCreate(SensorReadingBase):
@@ -45,10 +68,12 @@ class SensorReading(SensorReadingBase):
                 "device_id": "rover_01",
                 "room_id": "room_4",
                 "timestamp": "2026-09-01T20:00:00Z",
-                "temperature": 21.5,
-                "humidity": 45.0,
-                "sound_level": 32.0,
+                "pir_motion": False,
+                "gas_mq135": 35.5,
+                "gas_mq2": 22.0,
+                "ultrasonic_distance_cm": 120.0,
                 "battery": 88.5,
             }
         },
     }
+

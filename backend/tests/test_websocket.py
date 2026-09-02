@@ -44,9 +44,10 @@ def test_websocket_connect_lifecycle_and_normal_reading():
         payload = {
             "device_id": "rover_01",
             "room_id": "room_1",
-            "temperature": 21.5,
-            "humidity": 45.0,
-            "sound_level": 30.0,
+            "pir_motion": True,
+            "gas_mq135": 35.0,
+            "gas_mq2": 20.0,
+            "ultrasonic_distance_cm": 120.0,
             "battery": 97.0,
         }
         ws.send_json(payload)
@@ -65,13 +66,14 @@ def test_websocket_connect_lifecycle_and_normal_reading():
 def test_websocket_anomaly_detection_on_bad_reading():
     """Verify that known-bad readings trigger anomaly detection and flag over WebSocket."""
     with client.websocket_connect("/ws/device/rover_01") as ws:
-        # Send cold room anomaly payload in room_1 (baseline min is 18.0°C)
+        # Send hazardous gas anomaly payload in room_1 (baseline max is 100.0 ppm)
         bad_payload = {
             "device_id": "rover_01",
             "room_id": "room_1",
-            "temperature": 11.0,  # 11.0°C is well below safe 18.0°C minimum
-            "humidity": 45.0,
-            "sound_level": 30.0,
+            "pir_motion": True,
+            "gas_mq135": 180.0,  # 180.0 ppm is well above safe 100.0 ppm maximum
+            "gas_mq2": 30.0,
+            "ultrasonic_distance_cm": 110.0,
             "battery": 92.0,
         }
         ws.send_json(bad_payload)
@@ -80,9 +82,10 @@ def test_websocket_anomaly_detection_on_bad_reading():
         response = ws.receive_json()
         assert response["status"] == "acknowledged"
         assert response["is_anomaly"] is True
-        assert "TEMPERATURE_LOW" in response["anomalies"]
+        assert "gas_mq135_high" in response["anomalies"]
 
         # Verify reading is also stored and available via SensorService
         latest = client.get("/api/sensors/latest")
         assert latest.status_code == 200
-        assert latest.json()["data"]["temperature"] == 11.0
+        assert latest.json()["data"]["gas_mq135"] == 180.0
+

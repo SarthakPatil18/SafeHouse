@@ -90,29 +90,30 @@ def test_parse_command_ai_empty_text_raises_error():
 def test_explain_anomaly_success():
     """Verify explain_anomaly passes context to Gemini and returns explanation."""
     mock_response = MagicMock()
-    mock_response.text = "The bedroom temperature has dropped to 14.5°C, which is below the safe minimum of 18.0°C. Please verify room heating."
+    mock_response.text = "Elevated hazardous gas detected in Bedroom 1 (160.0 ppm), exceeding the safe baseline of 80.0 ppm. Please verify ventilation."
 
     mock_model = MagicMock()
     mock_model.generate_content.return_value = mock_response
 
     context = {
         "room_name": "Bedroom 1",
-        "type": "TEMPERATURE_LOW",
-        "value": 14.5,
-        "expected_min": 18.0,
-        "expected_max": 24.0,
+        "type": "gas_mq135_high",
+        "value": 160.0,
+        "expected_min": None,
+        "expected_max": 80.0,
         "severity": "HIGH",
-        "trend": "Falling 1°C per 10 minutes",
+        "trend": "Rising 20 ppm per 5 minutes",
     }
 
     with patch("app.ai.reasoning_agent.get_reasoning_model", return_value=mock_model):
         explanation = explain_anomaly(context)
-        assert "bedroom temperature" in explanation.lower()
+        assert "hazardous gas" in explanation.lower() or "bedroom 1" in explanation.lower()
         mock_model.generate_content.assert_called_once()
         prompt_arg = mock_model.generate_content.call_args[0][0]
         # Verify pre-calculated severity was injected into prompt
         assert "HIGH" in prompt_arg
         assert "Bedroom 1" in prompt_arg
+
 
 
 def test_explain_anomaly_empty_context_raises_error():

@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.alert import Anomaly
 from app.models.reading import SensorReading
 from app.schemas.sensors import SensorReadingCreate
-from app.services.anomaly_service import evaluate_reading_anomalies
+from app.services.anomaly_service import detect_gas_anomaly, detect_motion_anomaly
 from app.services.dashboard_broadcaster import broadcast_sensor_update
 from app.services.room_service import DEFAULT_ROOMS
 
@@ -19,6 +19,40 @@ _recent_readings_buffer: List[Dict[str, Any]] = []
 
 class SensorService:
     """Service handling environmental telemetry ingestion and history querying."""
+
+    @staticmethod
+    async def get_last_motion_timestamp(
+        room_id: str,
+        db: Optional[AsyncSession] = None,
+    ) -> Optional[datetime]:
+        """Fetch last_motion_at by querying the most recent sensor_readings row for that room where pir_motion=True."""
+        if db is not None:
+            try:
+                stmt = (
+                    select(SensorReading.timestamp)
+                    .where(SensorReading.room_id == room_id, SensorReading.pir_motion == True)
+                    .order_by(desc(SensorReading.timestamp))
+                    .limit(1)
+                )
+                result = await db.execute(stmt)
+                ts = result.scalar_one_or_none()
+                if ts:
+                    return ts
+            except Exception:
+                pass
+
+        # In-memory buffer fallback
+        for r in reversed(_recent_readings_buffer):
+            if r.get("room_id") == room_id and (r.get("pir_motion") is True or r.get("pir_motion") == 1):
+                ts = r.get("timestamp")
+                if isinstance(ts, str):
+                    try:
+                        return datetime.fromisoformat(ts.replace("Z", "+00:00"))
+                    except Exception:
+                        pass
+                elif isinstance(ts, datetime):
+                    return ts
+        return None
 
     @staticmethod
     async def record_reading(
@@ -40,10 +74,21 @@ class SensorService:
         if room_id and room_id in DEFAULT_ROOMS:
             baseline = DEFAULT_ROOMS[room_id].get("baseline")
 
-        # 2. Evaluate Deterministic Anomalies
+        # 2. Fetch last_motion_at for motion anomaly detection
+        last_motion_at = None
+        if room_id:
+            last_motion_at = await SensorService.get_last_motion_timestamp(room_id, db=db)
+
+        # 3. Evaluate Deterministic Gas and Motion Anomalies Separately
         detected_anomalies: List[Dict[str, Any]] = []
         if baseline:
-            raw_anomalies = evaluate_reading_anomalies(reading_dict, baseline)
+            gas_anoms = detect_gas_anomaly(reading_dict, baseline)
+            motion_anom = detect_motion_anomaly(reading_dict, baseline, last_motion_at=last_motion_at)
+
+            raw_anomalies = list(gas_anoms)
+            if motion_anom is not None:
+                raw_anomalies.append(motion_anom)
+
             for a in raw_anomalies:
                 anomaly_record = {
                     "id": f"anom_{uuid.uuid4().hex[:8]}",
@@ -52,12 +97,13 @@ class SensorService:
                     "type": a["type"],
                     "severity": a["severity"],
                     "value": a["value"],
-                    "expected_min": a["expected_min"],
-                    "expected_max": a["expected_max"],
+                    "expected_min": a.get("expected_min"),
+                    "expected_max": a.get("expected_max"),
                     "status": "detected",
                     "detected_at": datetime.now(timezone.utc).isoformat(),
                 }
                 detected_anomalies.append(anomaly_record)
+
 
         # 3. Store in Memory
         reading_output = dict(reading_dict)
@@ -73,9 +119,10 @@ class SensorService:
                     id=reading_id,
                     device_id=reading_in.device_id,
                     room_id=reading_in.room_id,
-                    temperature=reading_in.temperature,
-                    humidity=reading_in.humidity,
-                    sound_level=reading_in.sound_level,
+                    pir_motion=reading_in.pir_motion,
+                    gas_mq135=reading_in.gas_mq135,
+                    gas_mq2=reading_in.gas_mq2,
+                    ultrasonic_distance_cm=reading_in.ultrasonic_distance_cm,
                     battery=reading_in.battery,
                     timestamp=reading_dict["timestamp"],
                 )
@@ -131,9 +178,10 @@ class SensorService:
                         "id": rec.id,
                         "device_id": rec.device_id,
                         "room_id": rec.room_id,
-                        "temperature": rec.temperature,
-                        "humidity": rec.humidity,
-                        "sound_level": rec.sound_level,
+                        "pir_motion": rec.pir_motion,
+                        "gas_mq135": rec.gas_mq135,
+                        "gas_mq2": rec.gas_mq2,
+                        "ultrasonic_distance_cm": rec.ultrasonic_distance_cm,
                         "battery": rec.battery,
                         "timestamp": rec.timestamp.isoformat(),
                     }
@@ -148,9 +196,10 @@ class SensorService:
             "id": "sr_sample",
             "device_id": device_id,
             "room_id": "room_1",
-            "temperature": 21.0,
-            "humidity": 45.0,
-            "sound_level": 32.0,
+            "pir_motion": False,
+            "gas_mq135": 25.0,
+            "gas_mq2": 15.0,
+            "ultrasonic_distance_cm": 120.0,
             "battery": 98.0,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -175,9 +224,10 @@ class SensorService:
                             "id": r.id,
                             "device_id": r.device_id,
                             "room_id": r.room_id,
-                            "temperature": r.temperature,
-                            "humidity": r.humidity,
-                            "sound_level": r.sound_level,
+                            "pir_motion": r.pir_motion,
+                            "gas_mq135": r.gas_mq135,
+                            "gas_mq2": r.gas_mq2,
+                            "ultrasonic_distance_cm": r.ultrasonic_distance_cm,
                             "battery": r.battery,
                             "timestamp": r.timestamp.isoformat(),
                         }
@@ -191,3 +241,4 @@ class SensorService:
         if room_id:
             filtered = [r for r in filtered if r.get("room_id") == room_id]
         return list(reversed(filtered[-limit:]))
+

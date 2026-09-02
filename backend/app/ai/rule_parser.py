@@ -94,7 +94,7 @@ def parse_command_rule_based(text: str) -> Optional[Command]:
         return None
 
     # 1. STOP_ROVER / EMERGENCY_STOP
-    if re.match(r"^(stop|stop rover|emergency stop|halt|freeze|abort)$", cleaned):
+    if re.match(r"^(?:emergency\s+)?(?:stop|halt|freeze|abort)(?:\s+(?:rover|now|immediately))?$", cleaned) or re.match(r"^stop\s+rover(?:\s+(?:now|immediately))?$", cleaned):
         priority = "high" if "emergency" in cleaned else "normal"
         return Command(
             intent=CommandIntent.STOP_ROVER,
@@ -151,12 +151,13 @@ def parse_command_rule_based(text: str) -> Optional[Command]:
         )
 
     # 8. TAKE_SNAPSHOT
-    if re.match(r"^(take snapshot|snapshot|take photo|take picture|capture image)$", cleaned):
+    if re.match(r"^(?:take\s+(?:a\s+)?)?(?:snapshot|photo|picture|image)(?:\s+(?:of\s+(?:the\s+)?room|now))?$", cleaned):
         return Command(
             intent=CommandIntent.TAKE_SNAPSHOT,
             priority="normal",
             confirmation_required=False,
         )
+
 
     # 9. MOVE_FORWARD
     if re.match(r"^(move forward|go forward|drive forward|step forward|forward)$", cleaned):

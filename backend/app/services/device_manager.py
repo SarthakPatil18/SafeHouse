@@ -12,12 +12,18 @@ class DeviceConnectionManager:
         self._connections: Dict[str, WebSocket] = {}
         self._dispatched_commands: Dict[str, list] = {}
 
+    @property
+    def connected_count(self) -> int:
+        """Return the count of currently active device WebSocket connections."""
+        return len(self._connections)
+
     def register(self, device_id: str, websocket: WebSocket) -> None:
         """Register an active ESP32 rover WebSocket connection."""
         self._connections[device_id] = websocket
         if device_id not in self._dispatched_commands:
             self._dispatched_commands[device_id] = []
         logger.info("Registered active hardware connection for device '%s'.", device_id)
+
 
     def unregister(self, device_id: str) -> None:
         """Unregister a disconnected rover WebSocket."""

@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, List, Optional
-from sqlalchemy import DateTime, Float, ForeignKey, String
+from sqlalchemy import Boolean, DateTime, Float, ForeignKey, String
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base
@@ -46,20 +46,26 @@ class SensorReading(Base):
         index=True,
         doc="Timestamp when reading occurred in UTC",
     )
-    temperature: Mapped[float] = mapped_column(
-        Float,
+    pir_motion: Mapped[bool] = mapped_column(
+        Boolean,
+        default=False,
         nullable=False,
-        doc="Temperature in Celsius",
+        doc="PIR motion detection status (true if motion detected)",
     )
-    humidity: Mapped[float] = mapped_column(
+    gas_mq135: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        doc="Relative humidity percentage",
+        doc="MQ135 air quality / hazardous gas reading in ppm",
     )
-    sound_level: Mapped[float] = mapped_column(
+    gas_mq2: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        doc="Sound level measurement",
+        doc="MQ2 combustible gas and smoke reading in ppm",
+    )
+    ultrasonic_distance_cm: Mapped[float] = mapped_column(
+        Float,
+        nullable=False,
+        doc="Ultrasonic obstacle distance measurement in cm",
     )
     battery: Mapped[float] = mapped_column(
         Float,
@@ -74,3 +80,4 @@ class SensorReading(Base):
         "Anomaly",
         back_populates="reading",
     )
+

@@ -1,0 +1,965 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>SafeRoom — Autonomous Rover Control & Live Monitor</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Outfit:wght@500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg-primary: #0a0d14;
+      --bg-card: rgba(18, 24, 38, 0.75);
+      --bg-card-hover: rgba(28, 36, 56, 0.85);
+      --border-subtle: rgba(255, 255, 255, 0.08);
+      --border-glow: rgba(0, 242, 254, 0.3);
+      --text-main: #f3f4f6;
+      --text-muted: #9ca3af;
+      --accent-cyan: #00f2fe;
+      --accent-blue: #4facfe;
+      --accent-green: #10b981;
+      --accent-yellow: #f59e0b;
+      --accent-red: #ef4444;
+      --accent-purple: #8b5cf6;
+      --glass-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.37);
+      --font-heading: 'Outfit', sans-serif;
+      --font-body: 'Inter', sans-serif;
+      --font-mono: 'JetBrains Mono', monospace;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      background-color: var(--bg-primary);
+      background-image: 
+        radial-gradient(at 0% 0%, rgba(79, 172, 254, 0.12) 0px, transparent 50%),
+        radial-gradient(at 100% 100%, rgba(0, 242, 254, 0.08) 0px, transparent 50%),
+        radial-gradient(at 50% 50%, rgba(139, 92, 246, 0.05) 0px, transparent 50%);
+      background-attachment: fixed;
+      color: var(--text-main);
+      font-family: var(--font-body);
+      min-height: 100vh;
+      padding: 24px;
+      line-height: 1.5;
+    }
+
+    /* Layout Containers */
+    .container {
+      max-width: 1440px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+
+    /* Header */
+    header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 16px 24px;
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      box-shadow: var(--glass-shadow);
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+    }
+
+    .logo-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 12px;
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      box-shadow: 0 0 20px rgba(0, 242, 254, 0.4);
+    }
+
+    .brand-text h1 {
+      font-family: var(--font-heading);
+      font-size: 22px;
+      font-weight: 700;
+      letter-spacing: -0.5px;
+      background: linear-gradient(90deg, #ffffff, #93c5fd);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+
+    .brand-text p {
+      font-size: 12px;
+      color: var(--text-muted);
+    }
+
+    .header-status {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 14px;
+      border-radius: 20px;
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.3px;
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+      background: rgba(255, 255, 255, 0.05);
+      border: 1px solid var(--border-subtle);
+    }
+
+    .badge-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+    }
+
+    .badge-live {
+      background: rgba(16, 185, 129, 0.15);
+      border-color: rgba(16, 185, 129, 0.4);
+      color: #34d399;
+    }
+    .badge-live .badge-dot {
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+      animation: pulse 1.5s infinite;
+    }
+
+    .badge-state {
+      background: rgba(79, 172, 254, 0.15);
+      border-color: rgba(79, 172, 254, 0.4);
+      color: #93c5fd;
+    }
+    .badge-state.rechecking {
+      background: rgba(245, 158, 11, 0.15);
+      border-color: rgba(245, 158, 11, 0.4);
+      color: #fbbf24;
+    }
+    .badge-state.obstacle {
+      background: rgba(239, 68, 68, 0.15);
+      border-color: rgba(239, 68, 68, 0.4);
+      color: #f87171;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.85); }
+    }
+
+    /* Command Center Bar */
+    .command-bar {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 16px 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      box-shadow: var(--glass-shadow);
+    }
+
+    .command-input-group {
+      display: flex;
+      gap: 10px;
+    }
+
+    .command-input {
+      flex: 1;
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 12px 18px;
+      color: #fff;
+      font-size: 15px;
+      font-family: var(--font-body);
+      outline: none;
+      transition: all 0.2s;
+    }
+    .command-input:focus {
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 12px rgba(0, 242, 254, 0.3);
+    }
+
+    .btn {
+      padding: 10px 20px;
+      border-radius: 10px;
+      border: none;
+      font-family: var(--font-heading);
+      font-weight: 600;
+      font-size: 14px;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s;
+    }
+
+    .btn-primary {
+      background: linear-gradient(135deg, var(--accent-blue), var(--accent-cyan));
+      color: #05101a;
+      box-shadow: 0 4px 15px rgba(0, 242, 254, 0.3);
+    }
+    .btn-primary:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(0, 242, 254, 0.45);
+    }
+
+    .btn-danger {
+      background: linear-gradient(135deg, #ef4444, #dc2626);
+      color: #fff;
+      box-shadow: 0 4px 15px rgba(239, 68, 68, 0.3);
+    }
+    .btn-danger:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 20px rgba(239, 68, 68, 0.5);
+    }
+
+    .btn-secondary {
+      background: rgba(255, 255, 255, 0.08);
+      color: #fff;
+      border: 1px solid var(--border-subtle);
+    }
+    .btn-secondary:hover {
+      background: rgba(255, 255, 255, 0.14);
+    }
+
+    .chips-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .chip {
+      background: rgba(255, 255, 255, 0.04);
+      border: 1px solid var(--border-subtle);
+      padding: 6px 12px;
+      border-radius: 8px;
+      font-size: 12px;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+      font-family: var(--font-mono);
+    }
+    .chip:hover {
+      background: rgba(0, 242, 254, 0.1);
+      border-color: var(--accent-cyan);
+      color: #fff;
+    }
+
+    .ai-result-box {
+      font-family: var(--font-mono);
+      font-size: 12px;
+      padding: 10px 14px;
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 8px;
+      border-left: 3px solid var(--accent-cyan);
+      display: none;
+      color: #d1d5db;
+    }
+
+    /* Main 2-Col Grid */
+    .main-grid {
+      display: grid;
+      grid-template-columns: 1.2fr 0.8fr;
+      gap: 20px;
+    }
+
+    @media (max-width: 1080px) {
+      .main-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* Section Cards */
+    .card {
+      background: var(--bg-card);
+      backdrop-filter: blur(16px);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: var(--glass-shadow);
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 1px solid var(--border-subtle);
+      padding-bottom: 12px;
+    }
+
+    .card-title {
+      font-family: var(--font-heading);
+      font-size: 17px;
+      font-weight: 700;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    /* Floorplan Map */
+    .floorplan-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 14px;
+    }
+
+    .room-tile {
+      background: rgba(0, 0, 0, 0.3);
+      border: 1px solid var(--border-subtle);
+      border-radius: 12px;
+      padding: 16px;
+      position: relative;
+      overflow: hidden;
+      transition: all 0.25s;
+    }
+    .room-tile.has-rover {
+      border-color: var(--accent-cyan);
+      background: rgba(0, 242, 254, 0.05);
+      box-shadow: 0 0 16px rgba(0, 242, 254, 0.15);
+    }
+    .room-tile.is-anomalous {
+      border-color: var(--accent-red);
+      background: rgba(239, 68, 68, 0.08);
+      box-shadow: 0 0 16px rgba(239, 68, 68, 0.2);
+    }
+
+    .room-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+    }
+
+    .room-name {
+      font-weight: 600;
+      font-size: 15px;
+    }
+
+    .rover-indicator {
+      font-size: 11px;
+      font-family: var(--font-mono);
+      background: var(--accent-cyan);
+      color: #05101a;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 700;
+      display: none;
+      align-items: center;
+      gap: 4px;
+      animation: pulse 1.2s infinite;
+    }
+    .room-tile.has-rover .rover-indicator {
+      display: inline-flex;
+    }
+
+    .metrics-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr 1fr;
+      gap: 8px;
+      margin-top: 10px;
+    }
+
+    .metric-box {
+      background: rgba(255, 255, 255, 0.03);
+      border-radius: 8px;
+      padding: 8px 10px;
+      text-align: center;
+    }
+
+    .metric-label {
+      font-size: 10px;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+    }
+
+    .metric-val {
+      font-size: 16px;
+      font-weight: 700;
+      font-family: var(--font-heading);
+      margin-top: 2px;
+    }
+
+    .metric-val.cold, .metric-val.low { color: #60a5fa; }
+    .metric-val.hot, .metric-val.high { color: #f87171; }
+    .metric-val.warn { color: #fbbf24; }
+    .metric-val.ok { color: #34d399; }
+
+    /* Simulation Control Buttons */
+    .scenario-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 10px;
+    }
+
+    .scenario-btn {
+      background: rgba(0, 0, 0, 0.35);
+      border: 1px solid var(--border-subtle);
+      border-radius: 10px;
+      padding: 12px;
+      color: #fff;
+      font-family: var(--font-body);
+      font-size: 13px;
+      text-align: left;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+    .scenario-btn:hover {
+      background: rgba(255, 255, 255, 0.08);
+      border-color: var(--accent-cyan);
+    }
+    .scenario-btn.active {
+      background: rgba(0, 242, 254, 0.15);
+      border-color: var(--accent-cyan);
+      box-shadow: 0 0 14px rgba(0, 242, 254, 0.25);
+    }
+
+    /* Live Feeds */
+    .stream-box {
+      background: rgba(0, 0, 0, 0.4);
+      border-radius: 12px;
+      border: 1px solid var(--border-subtle);
+      padding: 12px;
+      max-height: 240px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      font-family: var(--font-mono);
+      font-size: 12px;
+    }
+
+    .stream-row {
+      padding: 8px 10px;
+      background: rgba(255, 255, 255, 0.02);
+      border-left: 2px solid #4facfe;
+      border-radius: 4px;
+      display: flex;
+      justify-content: space-between;
+      animation: fadeIn 0.3s ease;
+    }
+    .stream-row.anomaly {
+      border-left-color: var(--accent-red);
+      background: rgba(239, 68, 68, 0.08);
+    }
+
+    .alert-card {
+      background: rgba(239, 68, 68, 0.1);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      border-radius: 10px;
+      padding: 12px 16px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      animation: slideIn 0.3s ease;
+    }
+
+    .alert-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .alert-badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      text-transform: uppercase;
+      font-family: var(--font-mono);
+    }
+    .alert-badge.HIGH { background: #ef4444; color: #fff; }
+    .alert-badge.MEDIUM { background: #f59e0b; color: #000; }
+    .alert-badge.LOW { background: #3b82f6; color: #fff; }
+
+    .alert-msg {
+      font-size: 13px;
+      color: #f3f4f6;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(-4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes slideIn {
+      from { opacity: 0; transform: translateX(-10px); }
+      to { opacity: 1; transform: translateX(0); }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    
+    <!-- Top Header -->
+    <header>
+      <div class="brand">
+        <div class="logo-icon">🤖</div>
+        <div class="brand-text">
+          <h1>SafeRoom Autonomous Rover</h1>
+          <p>Real-time Environmental Anomaly Detector & Patrol Commander</p>
+        </div>
+      </div>
+
+      <div class="header-status">
+        <div class="badge badge-state" id="robotStateBadge">
+          <span class="badge-dot" style="background:#4facfe;"></span>
+          <span id="robotStateText">IDLE</span>
+        </div>
+        <div class="badge badge-live" id="wsStatusBadge">
+          <span class="badge-dot"></span>
+          <span>LIVE WS</span>
+        </div>
+      </div>
+    </header>
+
+    <!-- Natural Language Command Bar -->
+    <section class="command-bar">
+      <div class="command-input-group">
+        <input type="text" id="commandInput" class="command-input" placeholder="Enter voice or text command (e.g. 'Check bedroom 1', 'Start patrol', 'Stop rover', 'Return home')..." />
+        <button class="btn btn-primary" id="btnSendCommand">Send Command</button>
+        <button class="btn btn-danger" id="btnEmergencyStop">🛑 STOP ROVER</button>
+      </div>
+
+      <div class="chips-group">
+        <span class="chip" onclick="executeQuick('Start patrol')">🚀 Start Patrol</span>
+        <span class="chip" onclick="executeQuick('Check room 2')">🔍 Check Room 2</span>
+        <span class="chip" onclick="executeQuick('Return home')">🏠 Return Home</span>
+        <span class="chip" onclick="executeQuick('Status')">📊 Get Status</span>
+        <span class="chip" onclick="toggleObstacle()">⚠️ Toggle Obstacle</span>
+      </div>
+
+      <div class="ai-result-box" id="aiResultBox"></div>
+    </section>
+
+    <!-- Main Grid -->
+    <div class="main-grid">
+      
+      <!-- Left Column: Floorplan & Hardware Status -->
+      <div style="display:flex; flex-direction:column; gap:20px;">
+        
+        <!-- Floorplan Map -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📍 Spatial Floorplan & Environmental Baselines</div>
+            <div style="font-size:12px; color:var(--text-muted);" id="patrolProgress">Patrol: Inactive</div>
+          </div>
+
+          <div class="floorplan-grid">
+            <!-- Room 1 -->
+            <div class="room-tile" id="tile_room_1">
+              <div class="room-header">
+                <span class="room-name">Living Room</span>
+                <span class="rover-indicator">🛸 AT ROVER</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted);">Baseline: MQ135 &lt;100 | MQ2 &lt;100 | Motion: Active</div>
+              <div class="metrics-row">
+                <div class="metric-box">
+                  <div class="metric-label">MQ135</div>
+                  <div class="metric-val" id="r1_mq135">35 ppm</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">MQ2</div>
+                  <div class="metric-val" id="r1_mq2">20 ppm</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">PIR</div>
+                  <div class="metric-val" id="r1_motion">Motion</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Room 2 -->
+            <div class="room-tile" id="tile_room_2">
+              <div class="room-header">
+                <span class="room-name">Master Bedroom</span>
+                <span class="rover-indicator">🛸 AT ROVER</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted);">Baseline: MQ135 &lt;80 | MQ2 &lt;80 | Motion: Active</div>
+              <div class="metrics-row">
+                <div class="metric-box">
+                  <div class="metric-label">MQ135</div>
+                  <div class="metric-val" id="r2_mq135">30 ppm</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">MQ2</div>
+                  <div class="metric-val" id="r2_mq2">18 ppm</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">PIR</div>
+                  <div class="metric-val" id="r2_motion">Motion</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Room 3 -->
+            <div class="room-tile" id="tile_room_3">
+              <div class="room-header">
+                <span class="room-name">Guest Bedroom</span>
+                <span class="rover-indicator">🛸 AT ROVER</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted);">Baseline: MQ135 &lt;80 | MQ2 &lt;80 | Motion: Quiet</div>
+              <div class="metrics-row">
+                <div class="metric-box">
+                  <div class="metric-label">MQ135</div>
+                  <div class="metric-val" id="r3_mq135">25 ppm</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">MQ2</div>
+                  <div class="metric-val" id="r3_mq2">15 ppm</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">PIR</div>
+                  <div class="metric-val" id="r3_motion">Quiet</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- Room 4 -->
+            <div class="room-tile" id="tile_room_4">
+              <div class="room-header">
+                <span class="room-name">Kitchen</span>
+                <span class="rover-indicator">🛸 AT ROVER</span>
+              </div>
+              <div style="font-size:11px; color:var(--text-muted);">Baseline: MQ135 &lt;120 | MQ2 &lt;150 | Motion: Ignore</div>
+              <div class="metrics-row">
+                <div class="metric-box">
+                  <div class="metric-label">MQ135</div>
+                  <div class="metric-val" id="r4_mq135">45 ppm</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">MQ2</div>
+                  <div class="metric-val" id="r4_mq2">30 ppm</div>
+                </div>
+                <div class="metric-box">
+                  <div class="metric-label">PIR</div>
+                  <div class="metric-val" id="r4_motion">Clear</div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Hardware & Patrol Operations -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🔋 Rover Hardware & Patrol Manager</div>
+            <span id="batteryDisplay" style="font-family:var(--font-mono); font-weight:700; color:#34d399;">Battery: 98%</span>
+          </div>
+          <div style="display:flex; gap:12px;">
+            <button class="btn btn-primary" onclick="executeQuick('Start patrol')">▶️ Start Autonomous Patrol</button>
+            <button class="btn btn-secondary" onclick="fetch('/api/patrols/stop', {method:'POST'}).then(updateState)">⏹️ Stop Patrol</button>
+            <button class="btn btn-secondary" onclick="toggleObstacle()">⚠️ Obstacle Trigger</button>
+          </div>
+        </div>
+
+      </div>
+
+      <!-- Right Column: Scenarios, Live Telemetry & Alerts -->
+      <div style="display:flex; flex-direction:column; gap:20px;">
+        
+        <!-- Scripted Hardware Scenarios Panel -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🎮 Scripted ESP32 Scenarios (Simulation)</div>
+            <button class="btn btn-secondary" style="padding:4px 10px; font-size:12px;" onclick="stopSim()">⏹️ Stop Sim</button>
+          </div>
+          <div class="scenario-grid">
+            <button class="scenario-btn" onclick="startSim('normal')">
+              <span>🟢</span>
+              <div>
+                <strong>Normal Baseline</strong>
+                <div style="font-size:11px; color:var(--text-muted);">Safe readings across rooms</div>
+              </div>
+            </button>
+
+            <button class="scenario-btn" onclick="startSim('gas_leak_mq2')">
+              <span>🔥</span>
+              <div>
+                <strong>Gas Leak (MQ2)</strong>
+                <div style="font-size:11px; color:var(--text-muted);">Climbing MQ2 smoke/combustible leak</div>
+              </div>
+            </button>
+
+            <button class="scenario-btn" onclick="startSim('poor_air_quality_mq135')">
+              <span>💨</span>
+              <div>
+                <strong>Poor Air Quality (MQ135)</strong>
+                <div style="font-size:11px; color:var(--text-muted);">Hazardous air quality / pollutant spike</div>
+              </div>
+            </button>
+
+            <button class="scenario-btn" onclick="startSim('no_motion_timeout')">
+              <span>⏳</span>
+              <div>
+                <strong>No Motion Timeout</strong>
+                <div style="font-size:11px; color:var(--text-muted);">Inhabited room inactivity timeout</div>
+              </div>
+            </button>
+
+            <button class="scenario-btn" onclick="startSim('unexpected_motion')">
+              <span>🚶</span>
+              <div>
+                <strong>Unexpected Motion</strong>
+                <div style="font-size:11px; color:var(--text-muted);">PIR detection in quiet room</div>
+              </div>
+            </button>
+
+            <button class="scenario-btn" onclick="startSim('sensor_failure')">
+              <span>⚠️</span>
+              <div>
+                <strong>Sensor Failure</strong>
+                <div style="font-size:11px; color:var(--text-muted);">Missing metric recovery</div>
+              </div>
+            </button>
+
+            <button class="scenario-btn" onclick="startSim('device_offline')">
+              <span>🔌</span>
+              <div>
+                <strong>Rover Offline</strong>
+                <div style="font-size:11px; color:var(--text-muted);">Enforces hard safety halt</div>
+              </div>
+            </button>
+
+
+          </div>
+        </div>
+
+        <!-- Confirmed Alerts & AI Explanations Feed -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">🚨 Confirmed Alerts & AI Reasoning Feed</div>
+            <span style="font-size:12px; color:var(--text-muted);" id="alertCount">0 active</span>
+          </div>
+          <div id="alertsContainer" style="display:flex; flex-direction:column; gap:10px; max-height:220px; overflow-y:auto;">
+            <div style="font-size:13px; color:var(--text-muted); text-align:center; padding:16px;">No confirmed alerts. System nominal.</div>
+          </div>
+        </div>
+
+        <!-- Live Telemetry Stream -->
+        <div class="card">
+          <div class="card-header">
+            <div class="card-title">📡 Live WebSocket Ingestion Stream</div>
+            <span style="font-size:11px; color:var(--text-muted);" id="streamStats">0 frames</span>
+          </div>
+          <div class="stream-box" id="telemetryStream">
+            <div style="color:var(--text-muted); text-align:center;">Waiting for rover telemetry...</div>
+          </div>
+        </div>
+
+      </div>
+
+    </div>
+
+  </div>
+
+  <script>
+    let ws = null;
+    let obstacleActive = false;
+    let frameCount = 0;
+
+    // Connect to Browser Dashboard WebSocket
+    function connectWebSocket() {
+      const loc = window.location;
+      const wsProtocol = loc.protocol === 'https:' ? 'wss:' : 'ws:';
+      const wsUrl = `${wsProtocol}//${loc.host}/ws/dashboard`;
+
+      ws = new WebSocket(wsUrl);
+
+      ws.onopen = () => {
+        document.getElementById('wsStatusBadge').className = 'badge badge-live';
+        document.getElementById('wsStatusBadge').querySelector('span:last-child').textContent = 'LIVE WS';
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const msg = JSON.parse(event.data);
+          handleLiveMessage(msg);
+        } catch(e) {
+          console.error(e);
+        }
+      };
+
+      ws.onclose = () => {
+        document.getElementById('wsStatusBadge').className = 'badge badge-state';
+        document.getElementById('wsStatusBadge').querySelector('span:last-child').textContent = 'RECONNECTING...';
+        setTimeout(connectWebSocket, 2000);
+      };
+    }
+
+    function handleLiveMessage(msg) {
+      if (msg.type === 'sensor_update') {
+        const d = msg.data;
+        frameCount++;
+        document.getElementById('streamStats').textContent = `${frameCount} frames`;
+
+        // Update Floorplan tile
+        if (d.room_id) {
+          const mq135El = document.getElementById(`r${d.room_id.replace('room_','')}_mq135`);
+          const mq2El = document.getElementById(`r${d.room_id.replace('room_','')}_mq2`);
+          const motionEl = document.getElementById(`r${d.room_id.replace('room_','')}_motion`);
+          if (mq135El) mq135El.textContent = `${d.gas_mq135 !== undefined ? d.gas_mq135.toFixed(0) : '--'} ppm`;
+          if (mq2El) mq2El.textContent = `${d.gas_mq2 !== undefined ? d.gas_mq2.toFixed(0) : '--'} ppm`;
+          if (motionEl) motionEl.textContent = d.pir_motion ? 'Motion' : 'Quiet';
+
+          // Mark current rover position
+          document.querySelectorAll('.room-tile').forEach(el => el.classList.remove('has-rover'));
+          const activeTile = document.getElementById(`tile_${d.room_id}`);
+          if (activeTile) activeTile.classList.add('has-rover');
+        }
+
+        // Add to live stream box
+        const stream = document.getElementById('telemetryStream');
+        if (frameCount === 1) stream.innerHTML = '';
+        const row = document.createElement('div');
+        const isAnom = d.anomalies && d.anomalies.length > 0;
+        row.className = `stream-row ${isAnom ? 'anomaly' : ''}`;
+        row.innerHTML = `
+          <span>[${d.room_id || 'general'}] MQ135: ${d.gas_mq135}ppm, MQ2: ${d.gas_mq2}ppm, Motion: ${d.pir_motion ? 'DETECTED' : 'CLEAR'}</span>
+          <span style="color:${isAnom ? '#ef4444' : '#34d399'}">${isAnom ? d.anomalies[0].type : 'NOMINAL'}</span>
+        `;
+
+        stream.prepend(row);
+        if (stream.children.length > 30) stream.removeChild(stream.lastChild);
+        updateState();
+
+      } else if (msg.type === 'alert') {
+        renderAlert(msg.data);
+      }
+    }
+
+    function renderAlert(alert) {
+      const container = document.getElementById('alertsContainer');
+      if (container.querySelector('div')?.textContent.includes('No confirmed alerts')) {
+        container.innerHTML = '';
+      }
+
+      const el = document.createElement('div');
+      el.className = 'alert-card';
+      el.id = `alert_${alert.id}`;
+      el.innerHTML = `
+        <div class="alert-header">
+          <span style="font-weight:700; font-size:13px;">🚨 ${alert.room_id.toUpperCase()}</span>
+          <span class="alert-badge ${alert.severity}">${alert.severity}</span>
+        </div>
+        <div class="alert-msg">${alert.message}</div>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-top:4px;">
+          <span style="font-size:11px; color:var(--text-muted);">${new Date(alert.created_at).toLocaleTimeString()}</span>
+          <button class="btn btn-secondary" style="padding:4px 8px; font-size:11px;" onclick="ackAlert('${alert.id}')">Acknowledge</button>
+        </div>
+      `;
+      container.prepend(el);
+      document.getElementById('alertCount').textContent = `${container.children.length} active`;
+    }
+
+    async function ackAlert(id) {
+      await fetch(`/api/alerts/${id}/acknowledge`, { method: 'POST' });
+      const el = document.getElementById(`alert_${id}`);
+      if (el) el.remove();
+    }
+
+    async function updateState() {
+      try {
+        const res = await fetch('/api/robot/status');
+        const json = await res.json();
+        if (json.success && json.data) {
+          const st = json.data.status;
+          document.getElementById('robotStateText').textContent = st;
+          document.getElementById('batteryDisplay').textContent = `Battery: ${json.data.battery_level}%`;
+
+          const badge = document.getElementById('robotStateBadge');
+          badge.className = 'badge badge-state';
+          if (st === 'RECHECKING') badge.classList.add('rechecking');
+          if (st === 'OBSTACLE') badge.classList.add('obstacle');
+        }
+      } catch(e) {}
+    }
+
+    async function executeCommand() {
+      const input = document.getElementById('commandInput');
+      const text = input.value.trim();
+      if (!text) return;
+
+      const aiBox = document.getElementById('aiResultBox');
+      aiBox.style.display = 'block';
+      aiBox.textContent = `Analyzing input: "${text}"...`;
+
+      try {
+        const res = await fetch('/api/ai/command', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text }),
+        });
+        const json = await res.json();
+        if (json.success) {
+          aiBox.innerHTML = `✅ Intent: <strong>${json.data.intent}</strong> | Room: <strong>${json.data.room_id || 'N/A'}</strong> | Priority: <strong>${json.data.priority}</strong>`;
+        } else {
+          aiBox.innerHTML = `❌ Error: ${json.error.message}`;
+        }
+        updateState();
+      } catch(e) {
+        aiBox.textContent = `Error: ${e.message}`;
+      }
+    }
+
+    function executeQuick(cmd) {
+      document.getElementById('commandInput').value = cmd;
+      executeCommand();
+    }
+
+    async function toggleObstacle() {
+      obstacleActive = !obstacleActive;
+      await fetch(`/api/robot/obstacle?active=${obstacleActive}`, { method: 'POST' });
+      updateState();
+    }
+
+    async function startSim(name) {
+      document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+      event.currentTarget.classList.add('active');
+      await fetch(`/api/simulation/start?scenario=${name}&delay=1.0`, { method: 'POST' });
+    }
+
+    async function stopSim() {
+      document.querySelectorAll('.scenario-btn').forEach(b => b.classList.remove('active'));
+      await fetch('/api/simulation/stop', { method: 'POST' });
+    }
+
+    document.getElementById('btnSendCommand').onclick = executeCommand;
+    document.getElementById('btnEmergencyStop').onclick = () => {
+      fetch('/api/robot/stop', { method: 'POST' }).then(updateState);
+    };
+    document.getElementById('commandInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') executeCommand();
+    });
+
+    // Initialize
+    connectWebSocket();
+    updateState();
+    setInterval(updateState, 3000);
+  </script>
+</body>
+</html>

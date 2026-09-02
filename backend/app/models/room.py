@@ -110,30 +110,29 @@ class RoomBaseline(Base):
         index=True,
         doc="Foreign key to target room",
     )
-    temperature_min: Mapped[float] = mapped_column(
+    gas_mq135_max: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        doc="Minimum acceptable temperature in Celsius",
+        default=100.0,
+        doc="Maximum safe MQ135 air quality reading threshold in ppm",
     )
-    temperature_max: Mapped[float] = mapped_column(
+    gas_mq2_max: Mapped[float] = mapped_column(
         Float,
         nullable=False,
-        doc="Maximum acceptable temperature in Celsius",
+        default=100.0,
+        doc="Maximum safe MQ2 combustible gas/smoke reading threshold in ppm",
     )
-    humidity_min: Mapped[float] = mapped_column(
-        Float,
+    motion_mode: Mapped[str] = mapped_column(
+        String(50),
         nullable=False,
-        doc="Minimum acceptable humidity percentage",
+        default="expect_motion",
+        doc="Expected motion behavior: expect_motion, expect_no_motion, ignore",
     )
-    humidity_max: Mapped[float] = mapped_column(
-        Float,
-        nullable=False,
-        doc="Maximum acceptable humidity percentage",
-    )
-    sound_threshold: Mapped[float] = mapped_column(
-        Float,
-        nullable=False,
-        doc="Maximum acceptable sound level threshold before anomaly",
+    no_motion_timeout_seconds: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        nullable=True,
+        default=300,
+        doc="Timeout in seconds without motion before raising anomaly in expect_motion mode",
     )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -145,3 +144,4 @@ class RoomBaseline(Base):
 
     # Relationships
     room: Mapped["Room"] = relationship("Room", back_populates="baseline")
+

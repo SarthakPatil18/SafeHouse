@@ -41,7 +41,7 @@ class Anomaly(Base):
     type: Mapped[str] = mapped_column(
         String(50),
         nullable=False,
-        doc="Anomaly category (e.g. temperature_high, temperature_low, sound_spike, humidity_spike)",
+        doc="Anomaly category: gas_mq135_high, gas_mq2_high, motion_absent_too_long, motion_unexpected",
     )
     severity: Mapped[str] = mapped_column(
         String(20),

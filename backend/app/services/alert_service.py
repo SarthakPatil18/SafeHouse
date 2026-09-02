@@ -15,7 +15,7 @@ _alerts_store: List[Dict[str, Any]] = [
         "anomaly_id": "anom_sample_1",
         "room_id": "room_3",
         "severity": "HIGH",
-        "message": "Temperature in Guest Bedroom dropped to 14.5°C, below safe baseline (18.0°C).",
+        "message": "MQ2 combustible gas level in Guest Bedroom elevated to 145.0 ppm, exceeding safe threshold (80.0 ppm).",
         "channel": "dashboard",
         "status": "active",
         "created_at": datetime.now(timezone.utc).isoformat(),
@@ -30,14 +30,17 @@ class AlertService:
     @staticmethod
     async def list_alerts(
         status: Optional[str] = None,
+        room_id: Optional[str] = None,
         db: Optional[AsyncSession] = None,
     ) -> List[Dict[str, Any]]:
-        """List alerts with optional status filter."""
+        """List alerts with optional status and room_id filters."""
         if db is not None:
             try:
                 stmt = select(Alert).order_by(desc(Alert.created_at))
                 if status:
                     stmt = stmt.where(Alert.status == status)
+                if room_id:
+                    stmt = stmt.where(Alert.room_id == room_id)
                 result = await db.execute(stmt)
                 records = result.scalars().all()
                 if records:
@@ -62,9 +65,19 @@ class AlertService:
             except Exception:
                 pass
 
+        # In-memory store fallback (including alerts created by AnomalyWorker)
+        all_in_memory = list(_alerts_store)
+        from app.workers.anomaly_worker import get_created_alerts
+        for wa in get_created_alerts():
+            if not any(a["id"] == wa["id"] for a in all_in_memory):
+                all_in_memory.append(wa)
+
+        filtered = all_in_memory
         if status:
-            return [a for a in _alerts_store if a.get("status") == status]
-        return _alerts_store
+            filtered = [a for a in filtered if a.get("status") == status]
+        if room_id:
+            filtered = [a for a in filtered if a.get("room_id") == room_id]
+        return filtered
 
     @staticmethod
     async def acknowledge_alert(
@@ -72,15 +85,24 @@ class AlertService:
         db: Optional[AsyncSession] = None,
     ) -> Optional[Dict[str, Any]]:
         """Mark an active alert as acknowledged."""
-        now = datetime.now(timezone.utc).isoformat()
+        now_str = datetime.now(timezone.utc).isoformat()
+        now_dt = datetime.now(timezone.utc)
 
-        # Update in-memory
         target = None
         for a in _alerts_store:
             if a["id"] == alert_id:
                 a["status"] = "acknowledged"
-                a["acknowledged_at"] = now
+                a["acknowledged_at"] = now_str
                 target = a
+                break
+
+        from app.workers.anomaly_worker import get_created_alerts
+        for a in get_created_alerts():
+            if a["id"] == alert_id:
+                a["status"] = "acknowledged"
+                a["acknowledged_at"] = now_str
+                if target is None:
+                    target = a
                 break
 
         if db is not None:
@@ -91,7 +113,7 @@ class AlertService:
                 db_alert = result.scalars().first()
                 if db_alert:
                     db_alert.status = "acknowledged"
-                    db_alert.acknowledged_at = datetime.now(timezone.utc)
+                    db_alert.acknowledged_at = now_dt
                     await db.commit()
                     return {
                         "id": db_alert.id,
@@ -101,8 +123,16 @@ class AlertService:
                         "message": db_alert.message,
                         "channel": db_alert.channel,
                         "status": db_alert.status,
-                        "created_at": db_alert.created_at.isoformat(),
-                        "acknowledged_at": db_alert.acknowledged_at.isoformat(),
+                        "created_at": (
+                            db_alert.created_at.isoformat()
+                            if isinstance(db_alert.created_at, datetime)
+                            else str(db_alert.created_at)
+                        ),
+                        "acknowledged_at": (
+                            db_alert.acknowledged_at.isoformat()
+                            if isinstance(db_alert.acknowledged_at, datetime)
+                            else str(db_alert.acknowledged_at)
+                        ),
                     }
             except Exception:
                 pass

@@ -35,14 +35,15 @@ async def test_anomaly_then_confirm_on_recheck_creates_alert():
     sm = get_state_machine()
     sm.state = RobotState.PATROLLING
 
-    # 1. First Reading: Cold temperature anomaly in room_1 (baseline: 18.0 - 24.0 C)
+    # 1. First Reading: MQ135 gas anomaly in room_1 (baseline max: 100.0 ppm)
     first_reading = {
         "id": "sr_test_1",
         "device_id": "rover_01",
         "room_id": "room_1",
-        "temperature": 14.0,  # Below safe min 18.0
-        "humidity": 45.0,
-        "sound_level": 30.0,
+        "pir_motion": True,
+        "gas_mq135": 160.0,  # Above safe max 100.0
+        "gas_mq2": 30.0,
+        "ultrasonic_distance_cm": 120.0,
         "battery": 95.0,
     }
 
@@ -60,13 +61,14 @@ async def test_anomaly_then_confirm_on_recheck_creates_alert():
         "id": "sr_test_2",
         "device_id": "rover_01",
         "room_id": "room_1",
-        "temperature": 13.5,  # Still cold
-        "humidity": 45.0,
-        "sound_level": 30.0,
+        "pir_motion": True,
+        "gas_mq135": 175.0,  # Still high
+        "gas_mq2": 30.0,
+        "ultrasonic_distance_cm": 120.0,
         "battery": 94.5,
     }
 
-    mock_explanation = "Temperature in Living Room remains low at 13.5°C. Please inspect heating."
+    mock_explanation = "Elevated hazardous gas detected in Living Room (175.0 ppm). Please inspect room ventilation."
     with patch("app.workers.anomaly_worker.explain_anomaly_async", new=AsyncMock(return_value=mock_explanation)) as mock_ai:
         res_2 = await AnomalyWorker.process_reading(recheck_reading)
 
@@ -93,14 +95,15 @@ async def test_anomaly_then_resolve_on_recheck_no_alert():
     sm = get_state_machine()
     sm.state = RobotState.PATROLLING
 
-    # 1. First Reading: Loud sound anomaly in room_2 (baseline threshold is 45.0 dB)
+    # 1. First Reading: MQ2 gas spike in room_2 (baseline max: 80.0 ppm)
     first_reading = {
-        "id": "sr_test_loud",
+        "id": "sr_test_gas",
         "device_id": "rover_01",
         "room_id": "room_2",
-        "temperature": 21.0,
-        "humidity": 45.0,
-        "sound_level": 85.0,  # Loud noise spike
+        "pir_motion": True,
+        "gas_mq135": 30.0,
+        "gas_mq2": 150.0,  # Combustible gas spike
+        "ultrasonic_distance_cm": 110.0,
         "battery": 95.0,
     }
 
@@ -109,14 +112,15 @@ async def test_anomaly_then_resolve_on_recheck_no_alert():
     assert sm.state == RobotState.RECHECKING
     assert len(get_created_alerts()) == 0
 
-    # 2. Second Reading (Recheck): Sound returned to normal ambient level
+    # 2. Second Reading (Recheck): Gas returned to normal ambient level
     healthy_recheck_reading = {
-        "id": "sr_test_ambient",
+        "id": "sr_test_normal",
         "device_id": "rover_01",
         "room_id": "room_2",
-        "temperature": 21.0,
-        "humidity": 45.0,
-        "sound_level": 32.0,  # Normal ambient sound <= 45.0 dB
+        "pir_motion": True,
+        "gas_mq135": 30.0,
+        "gas_mq2": 25.0,  # Normal MQ2 <= 80.0 ppm
+        "ultrasonic_distance_cm": 110.0,
         "battery": 94.8,
     }
 
@@ -132,19 +136,67 @@ async def test_anomaly_then_resolve_on_recheck_no_alert():
         assert "room_2" not in get_pending_anomalies()
 
 
+@pytest.mark.anyio
+async def test_multiple_simultaneous_anomalies_confirm_creates_multiple_alerts():
+    """Verify multiple simultaneous anomaly types per reading (e.g. MQ135 + MQ2) create multiple alerts."""
+    sm = get_state_machine()
+    sm.state = RobotState.PATROLLING
+
+    # 1. First Reading: Simultaneous MQ135 and MQ2 gas anomalies in room_1
+    first_reading = {
+        "id": "sr_test_multi_1",
+        "device_id": "rover_01",
+        "room_id": "room_1",
+        "pir_motion": True,
+        "gas_mq135": 160.0,  # Above 100 max
+        "gas_mq2": 170.0,    # Above 100 max
+        "ultrasonic_distance_cm": 120.0,
+        "battery": 95.0,
+    }
+
+    res_1 = await AnomalyWorker.process_reading(first_reading)
+    assert res_1["action"] == "PENDING_RECHECK_TRIGGERED"
+    assert res_1["anomaly_count"] == 2
+    assert "room_1" in get_pending_anomalies()
+    assert sm.state == RobotState.RECHECKING
+
+    # 2. Second Reading (Recheck): Both anomalies confirmed
+    recheck_reading = {
+        "id": "sr_test_multi_2",
+        "device_id": "rover_01",
+        "room_id": "room_1",
+        "pir_motion": True,
+        "gas_mq135": 170.0,
+        "gas_mq2": 180.0,
+        "ultrasonic_distance_cm": 120.0,
+        "battery": 94.0,
+    }
+
+    mock_explanation = "Simultaneous hazardous and combustible gas confirmed in Living Room."
+    with patch("app.workers.anomaly_worker.explain_anomaly_async", new=AsyncMock(return_value=mock_explanation)):
+        res_2 = await AnomalyWorker.process_reading(recheck_reading)
+
+        assert res_2["action"] == "CONFIRMED_AND_ALERTED"
+        assert res_2["confirmed_count"] == 2
+        assert len(get_created_alerts()) == 2
+        alert_types = [a["severity"] for a in get_created_alerts()]
+        assert len(alert_types) == 2
+
+
 def test_websocket_stream_recheck_confirmation_flow():
     """Integration test: Verify WebSocket client receives worker action flags across recheck cycle."""
-    mock_explanation = "Guest bedroom temperature dropped to 12.0°C. Verified upon recheck."
+    mock_explanation = "Unexpected motion confirmed in Guest Bedroom. Verify room."
 
     with patch("app.workers.anomaly_worker.explain_anomaly_async", new=AsyncMock(return_value=mock_explanation)):
         with client.websocket_connect("/ws/device/rover_01") as ws:
-            # 1. First bad reading -> Triggers PENDING_RECHECK_TRIGGERED
+            # 1. First bad reading -> Triggers PENDING_RECHECK_TRIGGERED (room_3 mode is expect_no_motion)
             ws.send_json({
                 "device_id": "rover_01",
                 "room_id": "room_3",
-                "temperature": 12.0,  # anomaly (min is 18.0)
-                "humidity": 45.0,
-                "sound_level": 30.0,
+                "pir_motion": True,
+                "gas_mq135": 30.0,
+                "gas_mq2": 20.0,
+                "ultrasonic_distance_cm": 120.0,
                 "battery": 95.0,
             })
             ack1 = ws.receive_json()
@@ -156,9 +208,10 @@ def test_websocket_stream_recheck_confirmation_flow():
             ws.send_json({
                 "device_id": "rover_01",
                 "room_id": "room_3",
-                "temperature": 11.5,
-                "humidity": 45.0,
-                "sound_level": 30.0,
+                "pir_motion": True,
+                "gas_mq135": 30.0,
+                "gas_mq2": 20.0,
+                "ultrasonic_distance_cm": 120.0,
                 "battery": 94.5,
             })
             ack2 = ws.receive_json()
