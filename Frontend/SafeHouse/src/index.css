@@ -1,0 +1,368 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* Minimalist High-End Black & White Dark Mode Palette */
+  --color-base: 0 0 0;                 /* #000000 - pure pitch black */
+  --color-base-surface: 9 9 11;        /* #09090B - deep zinc-950 */
+  --color-base-elevated: 18 18 20;     /* #121214 - clean neutral card */
+  --color-base-hover: 24 24 27;        /* #18181B - subtle hover */
+
+  --color-line: 39 39 42;              /* #27272A - crisp monochrome border */
+  --color-line-strong: 63 63 70;       /* #3F3F46 - active border */
+  --color-line-faint: 24 24 27;        /* #18181B - faint separator */
+  --color-line-accent: 255 255 255;    /* #FFFFFF - white accent */
+
+  /* Vibrant Telemetry Metrics Colors (The ONLY Colorful Elements) */
+  --color-green: 16 185 129;           /* #10B981 - Air Quality / Nominal */
+  --color-green-dim: 5 150 105;        /* #059669 */
+  --color-green-bright: 52 211 153;    /* #34D399 */
+  --color-green-glow: rgba(16, 185, 129, 0.2);
+  --color-green-tint: rgba(16, 185, 129, 0.08);
+
+  --color-cyan: 56 189 248;            /* #38BDF8 - Humidity / Radar */
+  --color-cyan-dim: 14 165 233;        /* #0EA5E9 */
+  --color-cyan-bright: 125 211 252;    /* #7DD3FC */
+  --color-cyan-tint: rgba(56, 189, 248, 0.08);
+  --color-cyan-glow: rgba(56, 189, 248, 0.2);
+
+  --color-amber: 245 158 11;           /* #F59E0B - Temperature / Caution */
+  --color-amber-dim: 217 119 6;        /* #D97706 */
+  --color-amber-glow: rgba(245, 158, 11, 0.2);
+  --color-amber-tint: rgba(245, 158, 11, 0.08);
+
+  --color-red: 239 68 68;              /* #EF4444 - Smoke / Gas Hazard / Critical */
+  --color-red-dim: 220 38 38;          /* #DC2626 */
+  --color-red-glow: rgba(239, 68 68, 0.25);
+  --color-red-tint: rgba(239, 68 68, 0.08);
+
+  /* Monochrome High-Contrast Typography */
+  --color-ink: 255 255 255;            /* #FFFFFF - crisp white */
+  --color-ink-muted: 161 161 170;      /* #A1A1AA - zinc-400 silver gray */
+  --color-ink-faint: 113 113 122;      /* #71717A - zinc-500 subtle gray */
+
+  /* Structural UI elements */
+  --chassis-bg: #000000;
+  --chassis-border: #27272A;
+  --chassis-shadow: 0 4px 24px rgba(0, 0, 0, 0.6);
+  --chassis-topbar-bg: #09090B;
+  --chassis-topbar-border: #27272A;
+  --bracket-color: #FAFAFA;
+
+  /* Panels & Insets */
+  --panel-bg: #09090B;
+  --panel-elevated-bg: #121214;
+  --panel-inset-bg: #000000;
+  --header-bg: #09090B;
+
+  /* Map & Blueprint */
+  --map-bg: #000000;
+  --map-grid: #18181B;
+  --map-perimeter: #27272A;
+  --map-room-bg: #09090B;
+  --map-badge-bg: #18181B;
+  --map-rover-fill: #09090B;
+  --map-wheel-fill: #27272A;
+
+  /* Terminal & Cards */
+  --terminal-bg: #000000;
+  --hints-bg: #09090B;
+  --rover-graphic-bg: #000000;
+  --card-safe-bg: #064E3B;
+  --card-warning-bg: #451A03;
+  --card-critical-bg: #450A0A;
+  --card-selected-bg: #18181B;
+
+  /* Selection */
+  --selection-bg: rgba(255, 255, 255, 0.2);
+  --selection-color: #FFFFFF;
+
+  /* Data stream */
+  --data-stream-color: #FFFFFF;
+  --data-stream-opacity: 0.1;
+}
+
+html.light, .light {
+  /* Light Mode (Clean Studio / High-Contrast Monochrome Base) */
+  --color-base: 244 244 245;           /* #F4F4F5 - zinc-100 */
+  --color-base-surface: 255 255 255;   /* #FFFFFF - pure white */
+  --color-base-elevated: 250 250 250;  /* #FAFAFA */
+  --color-base-hover: 228 228 231;     /* #E4E4E7 */
+
+  --color-line: 228 228 231;           /* #E4E4E7 */
+  --color-line-strong: 212 212 216;    /* #D4D4D8 */
+  --color-line-faint: 244 244 245;     /* #F4F4F5 */
+  --color-line-accent: 9 9 11;
+
+  --color-green: 16 185 129;
+  --color-green-dim: 5 150 105;
+  --color-green-bright: 52 211 153;
+  --color-green-glow: rgba(16, 185, 129, 0.15);
+  --color-green-tint: rgba(16, 185, 129, 0.05);
+
+  --color-cyan: 14 165 233;
+  --color-cyan-dim: 2 132 199;
+  --color-cyan-bright: 56 189 248;
+  --color-cyan-tint: rgba(14, 165, 233, 0.05);
+  --color-cyan-glow: rgba(14, 165, 233, 0.15);
+
+  --color-amber: 217 119 6;
+  --color-amber-dim: 180 83 9;
+  --color-amber-glow: rgba(217, 119, 6, 0.15);
+  --color-amber-tint: rgba(217, 119, 6, 0.05);
+
+  --color-red: 220 38 38;
+  --color-red-dim: 185 28 28;
+  --color-red-glow: rgba(220, 38, 38, 0.15);
+  --color-red-tint: rgba(220, 38, 38, 0.05);
+
+  --color-ink: 9 9 11;                 /* #09090B - crisp black */
+  --color-ink-muted: 113 113 122;      /* #71717A */
+  --color-ink-faint: 161 161 170;      /* #A1A1AA */
+
+  --chassis-bg: #F4F4F5;
+  --chassis-border: #E4E4E7;
+  --chassis-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+  --chassis-topbar-bg: #FFFFFF;
+  --chassis-topbar-border: #E4E4E7;
+  --bracket-color: #09090B;
+
+  --panel-bg: #FFFFFF;
+  --panel-elevated-bg: #FAFAFA;
+  --panel-inset-bg: #F4F4F5;
+  --header-bg: #FFFFFF;
+
+  --map-bg: #FAFAFA;
+  --map-grid: #E4E4E7;
+  --map-perimeter: #D4D4D8;
+  --map-room-bg: #FFFFFF;
+  --map-badge-bg: #F4F4F5;
+  --map-rover-fill: #E4E4E7;
+  --map-wheel-fill: #D4D4D8;
+
+  --terminal-bg: #FAFAFA;
+  --hints-bg: #F4F4F5;
+  --rover-graphic-bg: #FAFAFA;
+  --card-safe-bg: #ECFDF5;
+  --card-warning-bg: #FFFBEB;
+  --card-critical-bg: #FEF2F2;
+  --card-selected-bg: #F4F4F5;
+
+  --selection-bg: rgba(9, 9, 11, 0.15);
+  --selection-color: #09090B;
+
+  --data-stream-color: #09090B;
+  --data-stream-opacity: 0.1;
+}
+
+@layer base {
+  * {
+    border-color: rgb(var(--color-line));
+    box-sizing: border-box;
+  }
+
+  html {
+    color-scheme: dark;
+    background-color: rgb(var(--color-base));
+  }
+
+  html.light {
+    color-scheme: light;
+    background-color: rgb(var(--color-base));
+  }
+
+  body {
+    margin: 0;
+    background-color: rgb(var(--color-base));
+    color: rgb(var(--color-ink));
+    font-family: 'Inter', system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    overflow-x: hidden;
+  }
+
+  ::selection {
+    background-color: var(--selection-bg);
+    color: var(--selection-color);
+  }
+}
+
+@layer components {
+  /* Clean App Container */
+  .hud-outer-chassis {
+    position: relative;
+    border: 1px solid var(--chassis-border);
+    background-color: var(--chassis-bg);
+    border-radius: 8px;
+    box-shadow: var(--chassis-shadow);
+  }
+
+  /* Monochrome Panels & Insets */
+  .hud-panel {
+    background-color: var(--panel-bg);
+    border: 1px solid rgb(var(--color-line));
+    position: relative;
+    border-radius: 8px;
+  }
+
+  .hud-panel-elevated {
+    background-color: var(--panel-elevated-bg);
+    border: 1px solid rgb(var(--color-line-strong));
+    position: relative;
+    border-radius: 8px;
+  }
+
+  .hud-panel-inset {
+    background-color: var(--panel-inset-bg);
+    border: 1px solid rgb(var(--color-line));
+    border-radius: 6px;
+  }
+
+  /* Metric Focus & Alert Glows */
+  .hud-glow-green {
+    border: 1px solid rgb(var(--color-green));
+    box-shadow: 0 0 12px var(--color-green-glow);
+  }
+
+  .hud-glow-amber {
+    border: 1px solid rgb(var(--color-amber));
+    box-shadow: 0 0 12px var(--color-amber-glow);
+  }
+
+  .hud-glow-red {
+    border: 1px solid rgb(var(--color-red));
+    box-shadow: 0 0 12px var(--color-red-glow);
+  }
+
+  .hud-glow-cyan {
+    border: 1px solid rgb(var(--color-cyan));
+    box-shadow: 0 0 12px var(--color-cyan-glow);
+  }
+
+  /* Section Header */
+  .hud-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 0.65rem 0.9rem;
+    background-color: var(--header-bg);
+    border-bottom: 1px solid rgb(var(--color-line));
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+  }
+
+  .hud-section-title {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.75rem;
+    font-weight: 700;
+    letter-spacing: 0.05em;
+    text-transform: uppercase;
+    color: rgb(var(--color-ink));
+  }
+
+  .hud-label-text {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 0.6875rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    text-transform: uppercase;
+    color: rgb(var(--color-ink-muted));
+  }
+
+  .mono {
+    font-family: 'JetBrains Mono', monospace;
+  }
+
+  /* Monochrome Navigation Item */
+  .hud-nav-item {
+    display: flex;
+    align-items: center;
+    gap: 0.75rem;
+    padding: 0.6rem 0.85rem;
+    font-size: 0.8125rem;
+    font-weight: 600;
+    color: rgb(var(--color-ink-muted));
+    background-color: transparent;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+    cursor: pointer;
+  }
+
+  .hud-nav-item:hover {
+    color: rgb(var(--color-ink));
+    background-color: rgba(255, 255, 255, 0.05);
+  }
+
+  .hud-nav-item.active {
+    color: #FFFFFF;
+    background-color: #18181B;
+    border-color: #3F3F46;
+  }
+
+  /* Minimalist Buttons */
+  .btn-hud {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.85rem;
+    font-size: 0.75rem;
+    font-weight: 600;
+    border-radius: 6px;
+    transition: all 0.15s ease;
+    cursor: pointer;
+  }
+
+  .btn-hud-green {
+    color: #FFFFFF;
+    background-color: #10B981;
+  }
+  .btn-hud-green:hover {
+    background-color: #059669;
+  }
+
+  .btn-hud-cyan {
+    color: #FFFFFF;
+    background-color: #0284C7;
+  }
+  .btn-hud-cyan:hover {
+    background-color: #0369A1;
+  }
+
+  .btn-hud-amber {
+    color: #FFFFFF;
+    background-color: #D97706;
+  }
+  .btn-hud-amber:hover {
+    background-color: #B45309;
+  }
+
+  .btn-hud-red {
+    color: #FFFFFF;
+    background-color: #EF4444;
+  }
+  .btn-hud-red:hover {
+    background-color: #DC2626;
+  }
+
+  .btn-hud-inactive {
+    color: rgb(var(--color-ink-muted));
+    background-color: var(--panel-inset-bg);
+    border: 1px solid rgb(var(--color-line));
+  }
+  .btn-hud-inactive:hover {
+    color: rgb(var(--color-ink));
+    background-color: var(--panel-elevated-bg);
+  }
+
+  /* Status Indicator dot */
+  .status-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    display: inline-block;
+    flex-shrink: 0;
+  }
+}

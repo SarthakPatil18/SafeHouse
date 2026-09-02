@@ -1,4 +1,4 @@
-# Python
+# Python & Backend
 __pycache__/
 *.py[cod]
 *$py.class
@@ -11,7 +11,13 @@ ENV/
 env.bak/
 venv.bak/
 
-# Environment Variables & Secrets
+# Node & Frontend
+node_modules/
+dist/
+.bolt/
+.freebuff*
+
+# Environment Variables & Secrets (Never commit secrets)
 .env
 .env.local
 *.pem

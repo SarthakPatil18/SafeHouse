@@ -36,6 +36,14 @@ class Settings(BaseModel):
     DEVICE_TOKEN: str = Field(
         default_factory=lambda: os.getenv("DEVICE_TOKEN", "")
     )
+    FRONTEND_ORIGIN: str = Field(
+        default_factory=lambda: os.getenv("FRONTEND_ORIGIN", "http://localhost:5173,http://127.0.0.1:5173")
+    )
+
+    @property
+    def cors_origins(self) -> list[str]:
+        """Parsed list of allowed CORS origins."""
+        return [o.strip() for o in self.FRONTEND_ORIGIN.split(",") if o.strip()]
 
 
 settings = Settings()

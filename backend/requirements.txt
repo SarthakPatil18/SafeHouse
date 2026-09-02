@@ -1,5 +1,5 @@
 fastapi
-uvicorn
+uvicorn[standard]
 sqlalchemy
 asyncpg
 pydantic
@@ -7,3 +7,4 @@ python-dotenv
 google-generativeai
 pytest
 websockets
+httpx

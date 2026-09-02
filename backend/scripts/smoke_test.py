@@ -84,7 +84,9 @@ def run_smoke_test():
     confirmed_detected = False
     confirmed_anomaly_id = None
 
-    with client.websocket_connect("/ws/device/rover_01") as ws:
+    token_param = f"?token={settings.DEVICE_TOKEN}" if settings.DEVICE_TOKEN else ""
+
+    with client.websocket_connect(f"/ws/device/rover_01{token_param}") as ws:
         log_pass("Connected hardware rover WebSocket to /ws/device/rover_01")
 
         for idx, reading in enumerate(gas_scenario, start=1):
@@ -130,7 +132,7 @@ def run_smoke_test():
     motion_pending = False
     motion_confirmed = False
 
-    with client.websocket_connect("/ws/device/rover_01") as ws:
+    with client.websocket_connect(f"/ws/device/rover_01{token_param}") as ws:
         for idx, reading in enumerate(motion_scenario, start=1):
             ws.send_json(reading)
             ack = ws.receive_json()
