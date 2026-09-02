@@ -1,0 +1,10 @@
+{
+  "buildCommand": "cd Frontend/SafeHouse && npm install && npm run build",
+  "outputDirectory": "Frontend/SafeHouse/dist",
+  "rewrites": [
+    {
+      "source": "/(.*)",
+      "destination": "/index.html"
+    }
+  ]
+}

@@ -1,0 +1,9 @@
+{
+  "name": "safehouse-monorepo",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "cd Frontend/SafeHouse && npm install && npm run build",
+    "dev": "cd Frontend/SafeHouse && npm run dev"
+  }
+}
