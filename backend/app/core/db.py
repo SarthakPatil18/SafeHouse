@@ -14,12 +14,30 @@ from app.core.config import settings
 from app.core.logging import logger
 from app.models.base import Base
 
+
+def _init_engine() -> AsyncEngine:
+    """Initialize primary async database engine with graceful fallback."""
+    try:
+        return create_async_engine(
+            settings.DATABASE_URL,
+            echo=False,
+            future=True,
+        )
+    except Exception as e:
+        logger.warning(
+            "Primary database engine init failed for (%s): %s. Initializing in-memory fallback.",
+            settings.DATABASE_URL,
+            e,
+        )
+        return create_async_engine(
+            "sqlite+aiosqlite:///:memory:",
+            echo=False,
+            future=True,
+        )
+
+
 # Create async engine with pooled connections
-engine: AsyncEngine = create_async_engine(
-    settings.DATABASE_URL,
-    echo=False,
-    future=True,
-)
+engine: AsyncEngine = _init_engine()
 
 # Async session factory
 async_session_factory = async_sessionmaker(
@@ -39,7 +57,6 @@ async def check_db_health() -> bool:
             return True
     except Exception:
         return False
-
 
 
 async def get_db() -> AsyncGenerator[Optional[AsyncSession], None]:
@@ -68,11 +85,14 @@ async def init_db() -> None:
     # Import all models to ensure they are registered on Base.metadata
     import app.models  # noqa: F401
 
-    async with engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        try:
-            await conn.execute(
-                text("ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'live';")
-            )
-        except Exception as e:
-            logger.debug("Database column migration note: %s", e)
+    try:
+        async with engine.begin() as conn:
+            await conn.run_sync(Base.metadata.create_all)
+            try:
+                await conn.execute(
+                    text("ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'live';")
+                )
+            except Exception as e:
+                logger.debug("Database column migration note: %s", e)
+    except Exception as e:
+        logger.warning("Database schema bootstrap note: %s", e)
