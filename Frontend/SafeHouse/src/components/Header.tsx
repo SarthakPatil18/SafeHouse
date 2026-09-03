@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useDashboard } from '@/context/DashboardContext';
 import { useTheme } from '@/context/ThemeContext';
-import { Shield, Sun, Moon, Radio } from 'lucide-react';
+import { SafeRoomLogo } from '@/components/SafeRoomLogo';
+import { Sun, Moon, Radio } from 'lucide-react';
 
 function formatClock(date: Date): string {
   return date.toLocaleTimeString('en-GB', {
@@ -35,10 +36,10 @@ export function Header({ onAlertClick }: { onAlertClick: () => void }) {
 
   return (
     <header className="flex items-center justify-between h-[60px] bg-base-surface border-b border-line px-4 lg:px-6 shrink-0 z-30 relative select-none">
-      {/* 1. Left Branding - Crisp Monochrome */}
+      {/* 1. Left Branding */}
       <div className="flex items-center gap-3">
-        <div className="w-8 h-8 flex items-center justify-center border border-line-strong bg-base-elevated rounded-md text-white">
-          <Shield className="w-4 h-4" />
+        <div className="w-9 h-9 flex items-center justify-center border border-line bg-base-elevated rounded-lg text-ink shadow-xs">
+          <SafeRoomLogo size={22} />
         </div>
         <div>
           <div className="flex items-center gap-2">
