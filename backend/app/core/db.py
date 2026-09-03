@@ -16,17 +16,26 @@ from app.models.base import Base
 
 
 def _init_engine() -> AsyncEngine:
-    """Initialize primary async database engine with graceful fallback."""
+    """Initialize primary async database engine with graceful fallback and Supabase pooler support."""
+    db_url = settings.DATABASE_URL
+    connect_args = {}
+
+    # Supabase Transaction Pooler (port 6543 / PgBouncer) requires disabling prepared statement cache in asyncpg
+    if "asyncpg" in db_url:
+        connect_args["statement_cache_size"] = 0
+        connect_args["prepared_statement_cache_size"] = 0
+
     try:
         return create_async_engine(
-            settings.DATABASE_URL,
+            db_url,
             echo=False,
             future=True,
+            connect_args=connect_args,
         )
     except Exception as e:
         logger.warning(
             "Primary database engine init failed for (%s): %s. Initializing in-memory fallback.",
-            settings.DATABASE_URL,
+            db_url,
             e,
         )
         return create_async_engine(
