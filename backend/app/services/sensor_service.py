@@ -121,10 +121,13 @@ class SensorService:
         # 4. Store in Database if available
         if db is not None:
             try:
-                # Ensure device exists to satisfy foreign key constraint
+                # Ensure device exists and update last_seen / battery
                 from app.models.device import Device
+                from app.services.robot_service import get_state_machine
+                now_dt = datetime.now(timezone.utc)
                 dev_res = await db.execute(select(Device).where(Device.id == reading_in.device_id))
-                if not dev_res.scalars().first():
+                dev = dev_res.scalars().first()
+                if not dev:
                     db.add(
                         Device(
                             id=reading_in.device_id,
@@ -132,9 +135,21 @@ class SensorService:
                             device_type="rover",
                             status="IDLE",
                             battery_level=float(reading_in.battery or 100.0),
+                            last_seen=now_dt,
                         )
                     )
                     await db.flush()
+                else:
+                    dev.last_seen = now_dt
+                    if reading_in.battery is not None:
+                        dev.battery_level = float(reading_in.battery)
+
+                # Update global state machine telemetry
+                sm = get_state_machine()
+                if reading_in.battery is not None:
+                    sm.battery_level = float(reading_in.battery)
+                if reading_in.room_id:
+                    sm.current_room_id = reading_in.room_id
 
                 db_reading = SensorReading(
                     id=reading_id,

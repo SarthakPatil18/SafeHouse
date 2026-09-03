@@ -141,8 +141,12 @@ static void updateWiFi() {
             // Include auth token as query parameter: /ws/device/{device_id}?token={DEVICE_TOKEN}
             snprintf(wsUrlPath, sizeof(wsUrlPath), "%s?token=%s", BACKEND_WS_PATH, DEVICE_TOKEN);
 
-            // Configure WebSocket client
+            // Configure WebSocket client (use beginSSL for port 443 on Render)
+            #if BACKEND_PORT == 443
+            webSocket.beginSSL(BACKEND_HOST, BACKEND_PORT, wsUrlPath);
+            #else
             webSocket.begin(BACKEND_HOST, BACKEND_PORT, wsUrlPath);
+            #endif
             // Send auth token via custom header per Section 4 auth contract
             webSocket.setExtraHeaders("X-Device-Token: " DEVICE_TOKEN "\r\n");
             webSocket.onEvent(webSocketEvent);
