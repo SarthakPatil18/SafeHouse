@@ -143,6 +143,10 @@ class AnomalyWorker:
                             f"Value {eval_data.get('value')} outside safe baseline. Severity: {severity}."
                         )
 
+                    # Prefix for offline buffered sync path (Section 5b)
+                    if reading.get("source") == "buffered":
+                        message_text = f"Detected from offline buffered data: {message_text}"
+
                     # Create Alert record
                     alert_id = f"alert_{uuid.uuid4().hex[:8]}"
                     alert_data = {

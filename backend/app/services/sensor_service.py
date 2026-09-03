@@ -109,6 +109,7 @@ class SensorService:
         reading_output = dict(reading_dict)
         if isinstance(reading_output["timestamp"], datetime):
             reading_output["timestamp"] = reading_output["timestamp"].isoformat()
+        reading_output["source"] = reading_dict.get("source", "live")
         reading_output["anomalies"] = detected_anomalies
         _recent_readings_buffer.append(reading_output)
 
@@ -125,6 +126,7 @@ class SensorService:
                     ultrasonic_distance_cm=reading_in.ultrasonic_distance_cm,
                     battery=reading_in.battery,
                     timestamp=reading_dict["timestamp"],
+                    source=reading_dict.get("source", "live"),
                 )
                 db.add(db_reading)
 
@@ -183,6 +185,7 @@ class SensorService:
                         "gas_mq2": rec.gas_mq2,
                         "ultrasonic_distance_cm": rec.ultrasonic_distance_cm,
                         "battery": rec.battery,
+                        "source": rec.source,
                         "timestamp": rec.timestamp.isoformat(),
                     }
             except Exception:
@@ -201,6 +204,7 @@ class SensorService:
             "gas_mq2": 15.0,
             "ultrasonic_distance_cm": 120.0,
             "battery": 98.0,
+            "source": "live",
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
 
@@ -229,6 +233,7 @@ class SensorService:
                             "gas_mq2": r.gas_mq2,
                             "ultrasonic_distance_cm": r.ultrasonic_distance_cm,
                             "battery": r.battery,
+                            "source": r.source,
                             "timestamp": r.timestamp.isoformat(),
                         }
                         for r in records

@@ -72,6 +72,12 @@ class SensorReading(Base):
         nullable=False,
         doc="Device battery level percentage at time of reading",
     )
+    source: Mapped[str] = mapped_column(
+        String,
+        default="live",
+        nullable=False,
+        doc="Telemetry ingest source: 'live' or 'buffered'",
+    )
 
     # Relationships
     device: Mapped["Device"] = relationship("Device", back_populates="readings")

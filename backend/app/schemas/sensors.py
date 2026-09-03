@@ -37,6 +37,10 @@ class SensorReadingBase(BaseModel):
         default=None,
         description="Elapsed seconds without motion (optional for simulation telemetry)",
     )
+    source: str = Field(
+        default="live",
+        description="Ingest source: 'live' or 'buffered'",
+    )
 
     model_config = {"extra": "allow"}
 

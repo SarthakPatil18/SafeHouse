@@ -70,3 +70,9 @@ async def init_db() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        try:
+            await conn.execute(
+                text("ALTER TABLE sensor_readings ADD COLUMN IF NOT EXISTS source VARCHAR DEFAULT 'live';")
+            )
+        except Exception as e:
+            logger.debug("Database column migration note: %s", e)
