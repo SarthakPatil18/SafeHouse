@@ -38,15 +38,30 @@ STATIC_INDEX = Path(__file__).parent / "static" / "index.html"
 START_TIME = datetime.now(timezone.utc)
 
 
+def _mask_db_url(url: str) -> str:
+    """Mask credentials in database connection string for diagnostic logging."""
+    if "@" in url and "://" in url:
+        scheme, rest = url.split("://", 1)
+        user_pass, host_db = rest.split("@", 1)
+        user = user_pass.split(":", 1)[0]
+        return f"{scheme}://{user}:***@{host_db}"
+    return url
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application startup and shutdown lifecycle management."""
-    logger.info("SafeRoom backend starting up in environment: %s", settings.ENVIRONMENT)
+    masked_db = _mask_db_url(settings.DATABASE_URL)
+    logger.info(
+        "SafeRoom backend starting up. ENVIRONMENT=%s, RESOLVED_DATABASE_URL=%s",
+        settings.ENVIRONMENT,
+        masked_db,
+    )
     try:
         await init_db()
         logger.info("Database tables initialized successfully.")
     except Exception as e:
-        logger.debug("Database initialization deferred / memory fallback: %s", e)
+        logger.warning("Database initialization deferred / memory fallback: %s", e)
     yield
     logger.info("SafeRoom backend shutting down.")
 
