@@ -5,6 +5,7 @@
 #include <FS.h>
 #include <HTTPClient.h>
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <ArduinoJson.h>
 
 #include "websocket_client.h"
@@ -192,18 +193,33 @@ void updateStorageSync() {
     String requestBody;
     serializeJson(batchArray, requestBody);
 
-    // 5. Send non-blocking HTTP POST to /api/sensors/sync
-    WiFiClient client;
+    // 5. Send HTTP POST to /api/sensors/sync
+    //    Use HTTPS (WiFiClientSecure) if BACKEND_PORT is 443 (Render cloud).
+    //    Use plain WiFiClient only for local testing on port 8000.
+    String syncUrl;
+#if BACKEND_PORT == 443
+    WiFiClientSecure secureClient;
+    secureClient.setInsecure();  // Accept Render's TLS cert without local CA store
+    syncUrl = "https://";
+    syncUrl += BACKEND_HOST;
+    syncUrl += BACKEND_SYNC_PATH;
     HTTPClient http;
-    char syncUrl[128];
-    snprintf(syncUrl, sizeof(syncUrl), "http://%s:%d%s", BACKEND_HOST, BACKEND_PORT, BACKEND_SYNC_PATH);
-
+    http.begin(secureClient, syncUrl);
+#else
+    WiFiClient client;
+    syncUrl = "http://";
+    syncUrl += BACKEND_HOST;
+    syncUrl += ":";
+    syncUrl += BACKEND_PORT;
+    syncUrl += BACKEND_SYNC_PATH;
+    HTTPClient http;
     http.begin(client, syncUrl);
+#endif
     http.addHeader("Content-Type", "application/json");
     if (strlen(DEVICE_TOKEN) > 0) {
         http.addHeader("X-Device-Token", DEVICE_TOKEN);
     }
-    http.setTimeout(800); // 800ms maximum HTTP timeout to avoid stalling loop()
+    http.setTimeout(5000); // 5s timeout for HTTPS
 
     int httpCode = http.POST(requestBody);
     bool syncSuccess = false;
