@@ -119,6 +119,21 @@ class PatrolService:
         # 4. Persist to Database if session exists
         if db is not None:
             try:
+                # Ensure device exists to satisfy foreign key constraint
+                from app.models.device import Device
+                dev_res = await db.execute(select(Device).where(Device.id == device_id))
+                if not dev_res.scalars().first():
+                    db.add(
+                        Device(
+                            id=device_id,
+                            name=f"SafeRoom {device_id.capitalize()}",
+                            device_type="rover",
+                            status="PATROLLING",
+                            battery_level=sm.battery_level,
+                        )
+                    )
+                    await db.flush()
+
                 db_patrol = Patrol(
                     id=patrol_id,
                     device_id=device_id,

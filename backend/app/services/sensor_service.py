@@ -121,6 +121,21 @@ class SensorService:
         # 4. Store in Database if available
         if db is not None:
             try:
+                # Ensure device exists to satisfy foreign key constraint
+                from app.models.device import Device
+                dev_res = await db.execute(select(Device).where(Device.id == reading_in.device_id))
+                if not dev_res.scalars().first():
+                    db.add(
+                        Device(
+                            id=reading_in.device_id,
+                            name=f"SafeRoom {reading_in.device_id.capitalize()}",
+                            device_type="rover",
+                            status="IDLE",
+                            battery_level=float(reading_in.battery or 100.0),
+                        )
+                    )
+                    await db.flush()
+
                 db_reading = SensorReading(
                     id=reading_id,
                     device_id=reading_in.device_id,

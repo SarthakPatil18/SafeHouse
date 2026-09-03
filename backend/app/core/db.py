@@ -158,5 +158,39 @@ async def init_db() -> None:
                 )
             except Exception as e:
                 logger.debug("Database column migration note: %s", e)
+
+            # Auto-bootstrap default rover device so foreign keys never fail
+            try:
+                await conn.execute(
+                    text("""
+                        INSERT INTO devices (id, name, device_type, status, battery_level, created_at)
+                        VALUES ('rover_01', 'SafeRoom Rover 01', 'rover', 'IDLE', 98.0, CURRENT_TIMESTAMP)
+                        ON CONFLICT (id) DO NOTHING;
+                    """)
+                )
+                await conn.execute(
+                    text("""
+                        INSERT INTO rooms (id, name, type, x, y, order_index, enabled, created_at)
+                        VALUES 
+                            ('room_1', 'Living Room', 'living_room', 2.0, 3.0, 1, true, CURRENT_TIMESTAMP),
+                            ('room_2', 'Master Bedroom', 'bedroom', 6.0, 3.0, 2, true, CURRENT_TIMESTAMP),
+                            ('room_3', 'Guest Bedroom', 'bedroom', 6.0, 7.0, 3, true, CURRENT_TIMESTAMP),
+                            ('room_4', 'Kitchen', 'kitchen', 2.0, 7.0, 4, true, CURRENT_TIMESTAMP)
+                        ON CONFLICT (id) DO NOTHING;
+                    """)
+                )
+                await conn.execute(
+                    text("""
+                        INSERT INTO room_baselines (id, room_id, gas_mq135_max, gas_mq2_max, motion_mode, no_motion_timeout_seconds, updated_at)
+                        VALUES
+                            ('bl_room_1', 'room_1', 100.0, 100.0, 'expect_presence', 3600, CURRENT_TIMESTAMP),
+                            ('bl_room_2', 'room_2', 80.0, 80.0, 'expect_presence', 28800, CURRENT_TIMESTAMP),
+                            ('bl_room_3', 'room_3', 80.0, 80.0, 'expect_absence', null, CURRENT_TIMESTAMP),
+                            ('bl_room_4', 'room_4', 120.0, 150.0, 'ignore', null, CURRENT_TIMESTAMP)
+                        ON CONFLICT (id) DO NOTHING;
+                    """)
+                )
+            except Exception as e:
+                logger.debug("Database default rows bootstrap note: %s", e)
     except Exception as e:
         logger.warning("Database schema bootstrap note: %s", e)

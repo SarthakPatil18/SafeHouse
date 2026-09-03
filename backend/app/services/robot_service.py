@@ -98,6 +98,20 @@ class RobotService:
         # Log robot event to DB if available
         if db is not None:
             try:
+                # Ensure device exists to satisfy foreign key constraint
+                dev_res = await db.execute(select(Device).where(Device.id == device_id))
+                if not dev_res.scalars().first():
+                    db.add(
+                        Device(
+                            id=device_id,
+                            name=f"SafeRoom {device_id.capitalize()}",
+                            device_type="rover",
+                            status=new_state.value,
+                            battery_level=sm.battery_level,
+                        )
+                    )
+                    await db.flush()
+
                 event = RobotEvent(
                     device_id=device_id,
                     event_type=f"COMMAND_{command.intent.value}",
