@@ -22,11 +22,9 @@ from app.core.logging import logger
 from app.core.security import verify_device_token
 from app.models.device import Device, RobotEvent
 from app.schemas.sensors import SensorReadingCreate
-from app.services.anomaly_service import detect_gas_anomaly, detect_motion_anomaly
 from app.services.dashboard_broadcaster import dashboard_manager
 from app.services.device_manager import get_device_manager
 from app.services.robot_service import get_state_machine
-from app.services.room_service import DEFAULT_ROOMS
 from app.services.sensor_service import SensorService
 
 router = APIRouter(tags=["WebSockets"])
@@ -162,23 +160,18 @@ async def device_websocket_endpoint(
                 })
                 continue
 
-            # Query last_motion_at and evaluate gas and motion anomalies separately
-            room_id = reading_in.room_id
-            baseline = DEFAULT_ROOMS[room_id].get("baseline") if room_id in DEFAULT_ROOMS else None
-            last_motion_at = await SensorService.get_last_motion_timestamp(room_id) if room_id else None
+            # Ingest, detect anomalies, save to Supabase, and process recheck worker
+            # A new db session is opened per reading to ensure each commit is isolated
+            async with async_session_factory() as db_session:
+                saved_reading = await SensorService.record_reading(
+                    reading_in,
+                    db=db_session,
+                    process_worker=True,
+                )
 
-            if baseline:
-                gas_anomalies = detect_gas_anomaly(reading_in, baseline)
-                motion_anomaly = detect_motion_anomaly(reading_in, baseline, last_motion_at=last_motion_at)
-            else:
-                gas_anomalies = []
-                motion_anomaly = None
-
-            # Ingest, detect anomalies, save reading, and process recheck worker
-            saved_reading = await SensorService.record_reading(reading_in, process_worker=True)
-
-            # Update state machine battery
-            sm.set_battery_level(reading_in.battery)
+            # Update state machine battery from live telemetry
+            if reading_in.battery is not None:
+                sm.set_battery_level(reading_in.battery)
 
             anomalies = saved_reading.get("anomalies", [])
             is_anomaly = len(anomalies) > 0
