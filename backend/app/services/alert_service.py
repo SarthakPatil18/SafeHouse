@@ -6,22 +6,12 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db import is_db_connection_error
+from app.core.logging import logger
 from app.models.alert import Alert, Anomaly
 
-# In-memory store for alerts
-_alerts_store: List[Dict[str, Any]] = [
-    {
-        "id": "alert_demo_1",
-        "anomaly_id": "anom_sample_1",
-        "room_id": "room_3",
-        "severity": "HIGH",
-        "message": "MQ2 combustible gas level in Guest Bedroom elevated to 145.0 ppm, exceeding safe threshold (80.0 ppm).",
-        "channel": "dashboard",
-        "status": "active",
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "acknowledged_at": None,
-    }
-]
+# In-memory store for alerts (starts empty - no fake demo data)
+_alerts_store: List[Dict[str, Any]] = []
 
 
 class AlertService:
@@ -62,10 +52,15 @@ class AlertService:
                         }
                         for a in records
                     ]
-            except Exception:
-                pass
+                return []
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in AlertService.list_alerts: %s", e)
+                else:
+                    logger.error("Database query failure in AlertService.list_alerts: %s", e, exc_info=True)
+                    raise
 
-        # In-memory store fallback (including alerts created by AnomalyWorker)
+        # In-memory store fallback (active alerts created by AnomalyWorker)
         all_in_memory = list(_alerts_store)
         from app.workers.anomaly_worker import get_created_alerts
         for wa in get_created_alerts():
@@ -134,8 +129,12 @@ class AlertService:
                             else str(db_alert.acknowledged_at)
                         ),
                     }
-            except Exception:
-                pass
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in AlertService.acknowledge_alert: %s", e)
+                else:
+                    logger.error("Database query failure in AlertService.acknowledge_alert: %s", e, exc_info=True)
+                    raise
 
         return target
 
@@ -173,7 +172,12 @@ class AlertService:
                         }
                         for an in records
                     ]
-            except Exception:
-                pass
+                return []
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in AlertService.list_anomalies: %s", e)
+                else:
+                    logger.error("Database query failure in AlertService.list_anomalies: %s", e, exc_info=True)
+                    raise
 
         return []

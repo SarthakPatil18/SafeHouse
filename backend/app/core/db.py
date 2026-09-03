@@ -1,5 +1,6 @@
 """Database connection, async engine, session factory, and bootstrap helper."""
 
+import asyncio
 from collections.abc import AsyncGenerator
 from typing import Optional
 from sqlalchemy.ext.asyncio import (
@@ -8,17 +9,65 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
-
+from sqlalchemy.exc import (
+    DBAPIError,
+    DisconnectionError,
+    InterfaceError,
+    OperationalError,
+    PendingRollbackError,
+    TimeoutError as SATimeoutError,
+)
 from sqlalchemy import text
 from app.core.config import settings
 from app.core.logging import logger
 from app.models.base import Base
 
+_is_fallback_engine: bool = False
+
+DB_CONNECTION_EXCEPTIONS = (
+    OperationalError,
+    InterfaceError,
+    DisconnectionError,
+    SATimeoutError,
+    PendingRollbackError,
+    ConnectionRefusedError,
+    ConnectionResetError,
+    OSError,
+    asyncio.TimeoutError,
+)
+
+
+def is_db_connection_error(exc: Exception) -> bool:
+    """Check if exception represents a genuine database connection, disconnection, or network failure."""
+    if isinstance(exc, DB_CONNECTION_EXCEPTIONS):
+        return True
+    if isinstance(exc, DBAPIError) and exc.connection_invalidated:
+        return True
+    err_str = str(exc).lower()
+    if any(k in err_str for k in [
+        "connection refused",
+        "connection reset",
+        "cannot connect to host",
+        "connection closed",
+        "is the server running",
+        "nodename nor servname provided",
+        "timeout expired",
+        "connect call failed",
+        "could not connect",
+        "no route to host",
+    ]):
+        return True
+    return False
+
 
 def _init_engine() -> AsyncEngine:
     """Initialize primary async database engine with graceful fallback and Supabase pooler support."""
+    global _is_fallback_engine
     db_url = settings.DATABASE_URL
     connect_args = {}
+
+    if "sqlite" in db_url and ":memory:" in db_url:
+        _is_fallback_engine = True
 
     # Supabase Transaction Pooler (port 6543 / PgBouncer) requires disabling prepared statement cache in asyncpg
     if "asyncpg" in db_url:
@@ -33,6 +82,7 @@ def _init_engine() -> AsyncEngine:
             connect_args=connect_args,
         )
     except Exception as e:
+        _is_fallback_engine = True
         logger.warning(
             "Primary database engine init failed for (%s): %s. Initializing in-memory fallback.",
             db_url,
@@ -59,7 +109,12 @@ async_session_factory = async_sessionmaker(
 
 
 async def check_db_health() -> bool:
-    """Verify whether database connection is active and responsive."""
+    """Verify whether database connection is active and responsive.
+
+    Returns False if operating in fallback in-memory mode or if ping fails.
+    """
+    if _is_fallback_engine:
+        return False
     try:
         async with engine.connect() as conn:
             await conn.execute(text("SELECT 1"))
@@ -74,7 +129,7 @@ async def get_db() -> AsyncGenerator[Optional[AsyncSession], None]:
     try:
         session = async_session_factory()
     except Exception as e:
-        logger.debug("Database session unavailable (%s), operating in memory fallback.", e)
+        logger.warning("Database session unavailable (%s), operating in memory fallback.", e)
         yield None
         return
 

@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db import is_db_connection_error
+from app.core.logging import logger
 from app.models.alert import Anomaly
 from app.models.reading import SensorReading
 from app.schemas.sensors import SensorReadingCreate
@@ -38,8 +40,12 @@ class SensorService:
                 ts = result.scalar_one_or_none()
                 if ts:
                     return ts
-            except Exception:
-                pass
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in SensorService.get_last_motion_timestamp: %s", e)
+                else:
+                    logger.error("Database query failure in SensorService.get_last_motion_timestamp: %s", e, exc_info=True)
+                    raise
 
         # In-memory buffer fallback
         for r in reversed(_recent_readings_buffer):
@@ -104,7 +110,6 @@ class SensorService:
                 }
                 detected_anomalies.append(anomaly_record)
 
-
         # 3. Store in Memory
         reading_output = dict(reading_dict)
         if isinstance(reading_output["timestamp"], datetime):
@@ -146,8 +151,12 @@ class SensorService:
                     db.add(db_anomaly)
 
                 await db.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in SensorService.record_reading: %s", e)
+                else:
+                    logger.error("Database query/integrity failure in SensorService.record_reading: %s", e, exc_info=True)
+                    raise
 
         # 5. Broadcast live update to all active browser dashboard WebSocket clients
         await broadcast_sensor_update(reading_output)
@@ -188,25 +197,18 @@ class SensorService:
                         "source": rec.source,
                         "timestamp": rec.timestamp.isoformat(),
                     }
-            except Exception:
-                pass
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in SensorService.get_latest_reading: %s", e)
+                else:
+                    logger.error("Database query failure in SensorService.get_latest_reading: %s", e, exc_info=True)
+                    raise
 
         if _recent_readings_buffer:
             return _recent_readings_buffer[-1]
 
-        # Default fallback sample
-        return {
-            "id": "sr_sample",
-            "device_id": device_id,
-            "room_id": "room_1",
-            "pir_motion": False,
-            "gas_mq135": 25.0,
-            "gas_mq2": 15.0,
-            "ultrasonic_distance_cm": 120.0,
-            "battery": 98.0,
-            "source": "live",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
+        # Return None if no real readings exist (no hardcoded fake readings)
+        return None
 
     @staticmethod
     async def get_history(
@@ -238,12 +240,16 @@ class SensorService:
                         }
                         for r in records
                     ]
-            except Exception:
-                pass
+                return []
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in SensorService.get_history: %s", e)
+                else:
+                    logger.error("Database query failure in SensorService.get_history: %s", e, exc_info=True)
+                    raise
 
         # In-memory buffer fallback
         filtered = _recent_readings_buffer
         if room_id:
             filtered = [r for r in filtered if r.get("room_id") == room_id]
         return list(reversed(filtered[-limit:]))
-

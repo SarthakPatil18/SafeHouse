@@ -1,4 +1,4 @@
-"""Service layer for patrol mission lifecycle, waypoint stops, and rover command orchestration."""
+"""Service layer for patrol lifecycle, mission state, and room waypoint advancement."""
 
 import uuid
 from datetime import datetime, timezone
@@ -7,80 +7,98 @@ from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.db import is_db_connection_error
 from app.core.logging import logger
 from app.models.patrol import Patrol, PatrolStop
 from app.robotics.state_machine import CommandRejectionError, RobotState
 from app.schemas.commands import Command, CommandIntent
 from app.services.device_manager import get_device_manager
-from app.services.robot_service import RobotService, get_state_machine
+from app.services.robot_service import get_state_machine
 from app.services.room_service import RoomService
 
-# In-memory active patrol state tracking
+# In-memory fallback tracking for patrols
 _active_patrols: Dict[str, Dict[str, Any]] = {}
 _patrol_history: List[Dict[str, Any]] = []
 
 
 def get_active_patrol(device_id: str = "rover_01") -> Optional[Dict[str, Any]]:
-    """Return active patrol dictionary for a device."""
+    """Retrieve in-memory active patrol record for a device."""
     return _active_patrols.get(device_id)
 
 
 def reset_patrol_state() -> None:
-    """Reset in-memory patrol state."""
+    """Reset patrol tracking state for tests."""
     _active_patrols.clear()
     _patrol_history.clear()
 
 
 class PatrolService:
-    """Service managing autonomous and manual rover patrol missions."""
+    """Service handling multi-room patrol sequences and state machine transitions."""
 
     @staticmethod
     async def start_patrol(
         device_id: str = "rover_01",
+        rooms: Optional[List[str]] = None,
         db: Optional[AsyncSession] = None,
     ) -> Dict[str, Any]:
-        """Start a new patrol across enabled rooms, checking Section 4 rejection rules.
+        """Initiate a multi-room patrol sequence.
 
-        1. Enforces Section 4 rejection rules (LOW_BATTERY, OFFLINE, OBSTACLE).
-        2. Creates a patrols record (status='RUNNING') and patrol_stops for enabled rooms.
-        3. Sends the first GO_TO_ROOM command to the rover via WebSocket.
+        Args:
+            device_id: Identifier of rover executing patrol.
+            rooms: Optional explicit list of room IDs. Defaults to enabled rooms in order_index.
+            db: Optional async database session.
+
+        Returns:
+            Dictionary with patrol session details.
 
         Raises:
-            CommandRejectionError: If device is in LOW_BATTERY or OFFLINE state.
+            CommandRejectionError: If device is in an invalid state (LOW_BATTERY, OFFLINE, OBSTACLE).
         """
         sm = get_state_machine()
 
-        # 1. Check Section 4 Rejection Rules
-        cmd = Command(intent=CommandIntent.START_PATROL)
-        sm.validate_command(cmd)
-        sm.execute_command(cmd)
-
-        # 2. Fetch enabled rooms sorted by order_index
-        all_rooms = await RoomService.list_rooms(db=db)
-        enabled_rooms = [r for r in all_rooms if r.get("enabled", True)]
-        enabled_rooms.sort(key=lambda r: r.get("order_index", 0))
-
-        if not enabled_rooms:
+        # Enforce Section 4 hard rejection rules
+        if sm.state == RobotState.LOW_BATTERY:
             raise CommandRejectionError(
-                code="NO_ENABLED_ROOMS",
-                message="Cannot start patrol: No enabled rooms configured.",
+                code="LOW_BATTERY",
+                message=f"Cannot start patrol: Rover battery ({sm.battery_level}%) is low.",
+            )
+        if sm.state == RobotState.OFFLINE:
+            raise CommandRejectionError(
+                code="ROBOT_OFFLINE",
+                message="Cannot start patrol: Rover is currently offline.",
+            )
+        if sm.has_obstacle:
+            raise CommandRejectionError(
+                code="OBSTACLE_DETECTED",
+                message="Cannot start patrol: Active obstacle detected in path.",
             )
 
+        # Transition state machine to PATROLLING
+        sm.execute_command(Command(intent=CommandIntent.START_PATROL))
+
+        # 1. Resolve patrol room sequence
+        if not rooms:
+            all_rooms = await RoomService.list_rooms(db=db)
+            enabled_rooms = [r for r in all_rooms if r.get("enabled", True)]
+            enabled_rooms.sort(key=lambda r: r.get("order_index", 0))
+            rooms = [r["id"] for r in enabled_rooms]
+
+        if not rooms:
+            rooms = ["room_1", "room_2", "room_3", "room_4"]
+
+        # 2. Build structured patrol and patrol_stops records
         patrol_id = f"patrol_{uuid.uuid4().hex[:8]}"
         now = datetime.now(timezone.utc)
-
-        # 3. Create patrol stops
         stops: List[Dict[str, Any]] = []
-        for idx, room in enumerate(enabled_rooms, start=1):
-            stop_id = f"stop_{idx}_{uuid.uuid4().hex[:4]}"
+
+        for seq, room_id in enumerate(rooms, start=1):
             stops.append({
-                "id": stop_id,
+                "id": f"stop_{uuid.uuid4().hex[:8]}",
                 "patrol_id": patrol_id,
-                "room_id": room["id"],
-                "room_name": room.get("name", room["id"]),
-                "sequence": idx,
-                "status": "arrived" if idx == 1 else "pending",
-                "arrived_at": now.isoformat() if idx == 1 else None,
+                "room_id": room_id,
+                "sequence": seq,
+                "status": "arrived" if seq == 1 else "pending",
+                "arrived_at": now.isoformat() if seq == 1 else None,
                 "departed_at": None,
             })
 
@@ -90,14 +108,15 @@ class PatrolService:
             "status": "RUNNING",
             "started_at": now.isoformat(),
             "completed_at": None,
-            "current_stop_index": 0,
             "stops": stops,
+            "current_stop_index": 0,
         }
 
+        # 3. Store in-memory
         _active_patrols[device_id] = patrol_data
         _patrol_history.append(patrol_data)
 
-        # 4. Persist to DB if available
+        # 4. Persist to Database if session exists
         if db is not None:
             try:
                 db_patrol = Patrol(
@@ -107,6 +126,7 @@ class PatrolService:
                     started_at=now,
                 )
                 db.add(db_patrol)
+
                 for s in stops:
                     db_stop = PatrolStop(
                         id=s["id"],
@@ -119,7 +139,11 @@ class PatrolService:
                     db.add(db_stop)
                 await db.commit()
             except Exception as e:
-                logger.debug("Database patrol creation deferred (%s).", e)
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in PatrolService.start_patrol: %s", e)
+                else:
+                    logger.error("Database persistence failure in PatrolService.start_patrol: %s", e, exc_info=True)
+                    raise
 
         # 5. Dispatch first GO_TO_ROOM command to the rover via WebSocket
         first_room = stops[0]["room_id"]
@@ -141,20 +165,17 @@ class PatrolService:
         device_id: str = "rover_01",
         room_id: Optional[str] = None,
         db: Optional[AsyncSession] = None,
-    ) -> Optional[Dict[str, Any]]:
-        """Advance patrol after a room inspection finishes.
-
-        Marks current stop departed_at, sends next GO_TO_ROOM, or triggers RETURN_HOME
-        if the last room was visited.
-        """
+    ) -> Dict[str, Any]:
+        """Advance patrol to next room stop or complete mission when final room is reached."""
         patrol = _active_patrols.get(device_id)
-        if not patrol or patrol.get("status") != "RUNNING":
-            return None
+        if not patrol or patrol["status"] not in ("RUNNING", "IN_PROGRESS"):
+            return {"action": "NO_ACTIVE_PATROL", "status": "IDLE"}
 
-        now = datetime.now(timezone.utc)
+        stops = patrol["stops"]
         curr_idx = patrol.get("current_stop_index", 0)
-        stops = patrol.get("stops", [])
+        now = datetime.now(timezone.utc)
 
+        # Mark current stop as departed/completed
         if curr_idx < len(stops):
             current_stop = stops[curr_idx]
             current_stop["status"] = "completed"
@@ -170,7 +191,11 @@ class PatrolService:
                         db_stop.departed_at = now
                         await db.commit()
                 except Exception as e:
-                    logger.debug("Database patrol stop update deferred (%s).", e)
+                    if is_db_connection_error(e):
+                        logger.warning("Database connection unavailable in PatrolService.advance_patrol (stop update): %s", e)
+                    else:
+                        logger.error("Database query failure in PatrolService.advance_patrol: %s", e, exc_info=True)
+                        raise
 
         next_idx = curr_idx + 1
         sm = get_state_machine()
@@ -219,7 +244,11 @@ class PatrolService:
                         db_patrol.completed_at = now
                         await db.commit()
                 except Exception as e:
-                    logger.debug("Database patrol completion deferred (%s).", e)
+                    if is_db_connection_error(e):
+                        logger.warning("Database connection unavailable in PatrolService.advance_patrol (completion): %s", e)
+                    else:
+                        logger.error("Database query failure in PatrolService.advance_patrol: %s", e, exc_info=True)
+                        raise
 
             # Transition state machine and dispatch RETURN_HOME command
             sm.execute_command(Command(intent=CommandIntent.RETURN_HOME))
@@ -276,7 +305,11 @@ class PatrolService:
                         db_patrol.completed_at = now
                         await db.commit()
                 except Exception as e:
-                    logger.debug("Database patrol cancellation deferred (%s).", e)
+                    if is_db_connection_error(e):
+                        logger.warning("Database connection unavailable in PatrolService.stop_patrol: %s", e)
+                    else:
+                        logger.error("Database persistence failure in PatrolService.stop_patrol: %s", e, exc_info=True)
+                        raise
 
             return patrol
 
@@ -335,7 +368,12 @@ class PatrolService:
                         }
                         for p in records
                     ]
-            except Exception:
-                pass
+                return []
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in PatrolService.list_patrols: %s", e)
+                else:
+                    logger.error("Database query failure in PatrolService.list_patrols: %s", e, exc_info=True)
+                    raise
 
         return list(reversed(_patrol_history[-limit:]))

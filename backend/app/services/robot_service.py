@@ -5,6 +5,8 @@ from typing import Any, Dict, List, Optional
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db import is_db_connection_error
+from app.core.logging import logger
 from app.models.device import Device, RobotEvent
 from app.robotics.state_machine import (
     CommandRejectionError,
@@ -62,8 +64,12 @@ class RobotService:
                         if device.last_seen
                         else None
                     )
-            except Exception:
-                pass  # Fall back to state machine telemetry
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in RobotService.get_status: %s", e)
+                else:
+                    logger.error("Database query failure in RobotService.get_status: %s", e, exc_info=True)
+                    raise
 
         return status_data
 
@@ -103,8 +109,12 @@ class RobotService:
                 )
                 db.add(event)
                 await db.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in RobotService.execute_command: %s", e)
+                else:
+                    logger.error("Database persistence failure in RobotService.execute_command: %s", e, exc_info=True)
+                    raise
 
         return {
             "command": command.intent.value,
@@ -141,7 +151,11 @@ class RobotService:
                         "payload": rec.payload,
                         "timestamp": rec.timestamp.isoformat(),
                     })
-            except Exception:
-                pass
+            except Exception as e:
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in RobotService.list_events: %s", e)
+                else:
+                    logger.error("Database query failure in RobotService.list_events: %s", e, exc_info=True)
+                    raise
 
         return events

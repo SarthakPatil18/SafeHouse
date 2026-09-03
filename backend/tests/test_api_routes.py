@@ -305,12 +305,40 @@ def test_patrols_api():
 
 def test_alerts_api():
     """Verify alerts listing with status/room filters and acknowledgement lifecycle."""
+    # 0. Ingest two readings to trigger and confirm a recheck anomaly alert for room_3
+    client.post(
+        "/api/sensors/readings",
+        json={
+            "device_id": "rover_01",
+            "room_id": "room_3",
+            "pir_motion": False,
+            "gas_mq135": 30.0,
+            "gas_mq2": 150.0,  # exceeds room_3 baseline of 80.0
+            "ultrasonic_distance_cm": 100.0,
+            "battery": 90.0,
+        },
+    )
+    # Second reading confirms recheck and generates alert
+    client.post(
+        "/api/sensors/readings",
+        json={
+            "device_id": "rover_01",
+            "room_id": "room_3",
+            "pir_motion": False,
+            "gas_mq135": 30.0,
+            "gas_mq2": 155.0,
+            "ultrasonic_distance_cm": 100.0,
+            "battery": 90.0,
+        },
+    )
+
     # 1. List all alerts
     res = client.get("/api/alerts")
     assert res.status_code == 200
     body = res.json()
     assert body["success"] is True
     assert len(body["data"]) >= 1
+    alert_id = body["data"][0]["id"]
 
     # 2. Filter alerts by status and room
     res_room = client.get("/api/alerts?room=room_3")
@@ -323,7 +351,7 @@ def test_alerts_api():
     assert len(res_empty_room.json()["data"]) == 0
 
     # 3. Acknowledge alert
-    res_ack = client.post("/api/alerts/alert_demo_1/acknowledge")
+    res_ack = client.post(f"/api/alerts/{alert_id}/acknowledge")
     assert res_ack.status_code == 200
     body_ack = res_ack.json()
     assert body_ack["success"] is True
@@ -333,7 +361,7 @@ def test_alerts_api():
     # 4. Filter by acknowledged status
     res_status = client.get("/api/alerts?status=acknowledged")
     assert res_status.status_code == 200
-    assert any(a["id"] == "alert_demo_1" for a in res_status.json()["data"])
+    assert any(a["id"] == alert_id for a in res_status.json()["data"])
 
     # 5. Acknowledge non-existent alert
     res_404 = client.post("/api/alerts/non_existent_alert_id/acknowledge")

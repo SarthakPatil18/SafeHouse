@@ -7,9 +7,11 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
+from app.core.db import is_db_connection_error
+from app.core.logging import logger
 from app.models.room import Room, RoomBaseline
 
-# Default in-memory rooms for bootstrap/simulation
+# Default room templates (used during initial database bootstrap/seeding and connection offline fallback)
 DEFAULT_ROOMS: Dict[str, Dict[str, Any]] = {
     "room_1": {
         "id": "room_1",
@@ -111,8 +113,17 @@ class RoomService:
                         }
                         for r in rooms
                     ]
-            except Exception:
-                pass
+                return list(DEFAULT_ROOMS.values())
+            except Exception as e:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in RoomService.list_rooms: %s", e)
+                else:
+                    logger.error("Database query failure in RoomService.list_rooms: %s", e, exc_info=True)
+                    raise
 
         return list(DEFAULT_ROOMS.values())
 
@@ -150,8 +161,17 @@ class RoomService:
                             else None
                         ),
                     }
-            except Exception:
-                pass
+                return DEFAULT_ROOMS.get(room_id)
+            except Exception as e:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in RoomService.get_room: %s", e)
+                else:
+                    logger.error("Database query failure in RoomService.get_room: %s", e, exc_info=True)
+                    raise
 
         return DEFAULT_ROOMS.get(room_id)
 
@@ -205,8 +225,16 @@ class RoomService:
                     )
                     db.add(db_bl)
                 await db.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in RoomService.create_room: %s", e)
+                else:
+                    logger.error("Database persistence failure in RoomService.create_room: %s", e, exc_info=True)
+                    raise
 
         return new_room_dict
 
@@ -235,8 +263,16 @@ class RoomService:
                         if v is not None and hasattr(db_room, k):
                             setattr(db_room, k, v)
                     await db.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in RoomService.update_room: %s", e)
+                else:
+                    logger.error("Database update failure in RoomService.update_room: %s", e, exc_info=True)
+                    raise
 
         return await RoomService.get_room(room_id, db=db)
 
@@ -259,8 +295,16 @@ class RoomService:
                     await db.delete(db_room)
                     await db.commit()
                     found = True
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in RoomService.delete_room: %s", e)
+                else:
+                    logger.error("Database delete failure in RoomService.delete_room: %s", e, exc_info=True)
+                    raise
 
         return found
 
@@ -310,7 +354,15 @@ class RoomService:
                     )
                     db.add(bl)
                 await db.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                try:
+                    await db.rollback()
+                except Exception:
+                    pass
+                if is_db_connection_error(e):
+                    logger.warning("Database connection unavailable in RoomService.update_baseline: %s", e)
+                else:
+                    logger.error("Database update failure in RoomService.update_baseline: %s", e, exc_info=True)
+                    raise
 
         return DEFAULT_ROOMS.get(room_id, {}).get("baseline", baseline_data)

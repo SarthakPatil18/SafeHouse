@@ -35,6 +35,9 @@ def test_websocket_auth_rejection():
 def test_websocket_connect_lifecycle_and_normal_reading():
     """Verify CONNECTED/DISCONNECTED events and telemetry ingestion via WebSocket."""
     sm = get_state_machine()
+    sm.state = RobotState.IDLE
+    sm.has_obstacle = False
+    sm.battery_level = 98.0
 
     with client.websocket_connect("/ws/device/rover_01") as ws:
         # State machine should be brought online
