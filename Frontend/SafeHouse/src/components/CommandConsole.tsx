@@ -44,6 +44,29 @@ function formatBackendResponse(res: any): { text: string; kind: ConsoleMessage['
   if (res.result) {
     if (typeof res.result === 'string') return { text: res.result, kind: 'success' };
     if (res.result.message) return { text: res.result.message, kind: 'success' };
+
+    // Patrol payload formatting
+    if (res.result.stops && Array.isArray(res.result.stops)) {
+      const stops = res.result.stops;
+      const status = res.result.status || 'RUNNING';
+      const stopNames = stops.map((s: any) => s.room_id.replace('_', ' ')).join(' → ');
+      return {
+        text: `Patrol ${status.toLowerCase()}: Sequence across ${stops.length} zones (${stopNames}).`,
+        kind: 'success',
+      };
+    }
+
+    // Rover command payload formatting
+    if (res.result.status) {
+      const r = res.result;
+      const cmdName = r.command ? r.command.replace('_', ' ') : 'Command';
+      const roomTarget = r.room_id ? ` for ${r.room_id.replace('_', ' ')}` : '';
+      return {
+        text: `${cmdName}${roomTarget} executed. Rover state: ${r.status}. Battery: ${r.battery_level ?? 100}%.`,
+        kind: 'success',
+      };
+    }
+
     return { text: JSON.stringify(res.result), kind: 'success' };
   }
 

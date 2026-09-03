@@ -88,11 +88,25 @@ async def process_natural_language_command(
         # A. Patrol Commands
         if intent == CommandIntent.START_PATROL:
             res = await PatrolService.start_patrol(db=db)
-            return SuccessResponse(data={"intent": intent.value, "result": res})
+            stops_cnt = len(res.get("stops", []))
+            first_stop = res.get("stops", [{}])[0].get("room_id", "waypoint").replace("_", " ")
+            return SuccessResponse(
+                data={
+                    "intent": intent.value,
+                    "result": res,
+                    "message": f"Autonomous patrol started across {stops_cnt} zones. Heading to {first_stop}.",
+                }
+            )
 
         elif intent == CommandIntent.STOP_PATROL:
             res = await PatrolService.stop_patrol(db=db)
-            return SuccessResponse(data={"intent": intent.value, "result": res})
+            return SuccessResponse(
+                data={
+                    "intent": intent.value,
+                    "result": res,
+                    "message": "Patrol mission stopped. Rover halted.",
+                }
+            )
 
         # B. Movement / Rover Operations
         elif intent in {
@@ -106,7 +120,15 @@ async def process_natural_language_command(
             CommandIntent.TURN_RIGHT,
         }:
             res = await RobotService.execute_command(cmd, db=db)
-            return SuccessResponse(data={"intent": intent.value, "result": res})
+            if intent == CommandIntent.STOP_ROVER:
+                msg = "Emergency stop engaged. Rover halted immediately."
+            elif intent == CommandIntent.RETURN_HOME:
+                msg = "Returning to docking base."
+            elif cmd.room_id:
+                msg = f"Navigating to {cmd.room_id.replace('_', ' ')}."
+            else:
+                msg = f"Executed {intent.value.replace('_', ' ')}. Rover state: {res.get('status', 'IDLE')}."
+            return SuccessResponse(data={"intent": intent.value, "result": res, "message": msg})
 
         # C. Read-Only Telemetry / Status Queries
         elif intent == CommandIntent.GET_STATUS:
