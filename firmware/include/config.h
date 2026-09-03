@@ -25,6 +25,7 @@
 #define BACKEND_HOST            "192.168.1.100"  // IP or hostname of FastAPI backend
 #define BACKEND_PORT            8000             // HTTP/WS Port
 #define BACKEND_WS_PATH         "/ws/device/" DEVICE_ID
+#define BACKEND_SYNC_PATH       "/api/sensors/sync"
 #define DEVICE_TOKEN            "secret_rover_auth_token"  // Matching backend settings.DEVICE_TOKEN
 
 // -----------------------------------------------------------------------------
@@ -38,6 +39,12 @@
 #define PIN_ULTRASONIC_TRIG     5    // Digital Output: HC-SR04 Ultrasonic Trigger
 #define PIN_ULTRASONIC_ECHO     18   // Digital Input: HC-SR04 Ultrasonic Echo
 #define PIN_BATTERY_ADC         36   // ADC Input: Battery voltage divider (ADC1 CH0 / VP)
+
+// MicroSD Card SPI Interface (VSPI Bus) - Section 2 & 4a
+#define PIN_SD_CS               21   // Digital Output: MicroSD Card SPI Chip Select (Placeholder)
+#define PIN_SD_MOSI             23   // SPI Master Out Slave In
+#define PIN_SD_MISO             19   // SPI Master In Slave Out
+#define PIN_SD_SCK              18   // SPI Serial Clock
 
 // IR Line-Following Sensor Array (Navigation only - not reported as environmental telemetry)
 #define PIN_LINE_LEFT           32   // Digital/Analog Input: Far-left line sensor
@@ -68,3 +75,7 @@
 #define TELEMETRY_INTERVAL_MS           1000    // Telemetry push rate in milliseconds (1Hz)
 #define OBSTACLE_CHECK_INTERVAL_MS      50      // Fast local obstacle check rate (20Hz)
 #define NAVIGATION_LOOP_INTERVAL_MS     20      // Line-following PID loop rate (50Hz)
+
+// MicroSD Offline Storage & Sync Configuration (Section 4a)
+#define SD_SYNC_BATCH_SIZE              10      // Max number of buffered readings synced per HTTP chunk
+#define SD_SYNC_INTERVAL_MS             500     // Minimum delay between chunk sync requests (non-blocking)

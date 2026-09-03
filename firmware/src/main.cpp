@@ -5,6 +5,7 @@
 #include "navigation.h"
 #include "websocket_client.h"
 #include "state_machine.h"
+#include "storage.h"
 
 // Non-blocking timer for periodic telemetry push (TELEMETRY_INTERVAL_MS in config.h)
 static unsigned long lastTelemetrySend = 0;
@@ -18,11 +19,12 @@ void setup() {
     Serial.printf(" Device ID: %s | Firmware: %s\n", DEVICE_ID, FIRMWARE_VERSION);
     Serial.println("==================================================");
 
-    // 1. Initialize hardware subsystems (Sensors, Motors, Line Navigation)
+    // 1. Initialize hardware subsystems (Sensors, Motors, Navigation, MicroSD Storage)
     initSensors();
     initMotors();
     initNavigation();
     initStateMachine();
+    initStorage();
 
     // 2. Register state machine command executor callback with the WebSocket client
     // When incoming JSON commands arrive over WebSocket, onMessage parses them into
@@ -47,7 +49,10 @@ void loop() {
     // 3. Process state machine transitions, battery monitoring, and room arrival
     updateStateMachine();
 
-    // 4. Non-blocking periodic sensor telemetry push (Prompt F2 / Section 4)
+    // 4. Non-blocking MicroSD store-and-forward chunked sync (Section 4a)
+    updateStorageSync();
+
+    // 5. Non-blocking periodic sensor telemetry push (Prompt F2 / Section 4)
     unsigned long now = millis();
     if (now - lastTelemetrySend >= TELEMETRY_INTERVAL_MS) {
         lastTelemetrySend = now;
@@ -55,7 +60,10 @@ void loop() {
         // Sample environmental and distance sensors
         SensorReading reading = readAllSensors();
 
-        // Push telemetry payload matching Section 4 JSON contract
+        // Always log reading to local MicroSD buffer file (Section 4a)
+        logReadingToSD(reading, getCurrentRoom());
+
+        // Push live telemetry payload matching Section 4 JSON contract when connected
         if (isWebSocketConnected()) {
             send_reading(reading, getCurrentRoom());
         }

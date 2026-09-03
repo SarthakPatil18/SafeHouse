@@ -1,4 +1,5 @@
 #include "websocket_client.h"
+#include "storage.h"
 
 #include <WiFi.h>
 #include <WebSocketsClient.h>
@@ -25,6 +26,9 @@ static void onConnect() {
     wsConnected = true;
     Serial.printf("[WS] Connected to backend at ws://%s:%d%s\n",
                   BACKEND_HOST, BACKEND_PORT, BACKEND_WS_PATH);
+
+    // Trigger non-blocking sync of any offline buffered telemetry
+    triggerStorageSync();
 }
 
 static void onDisconnect() {
